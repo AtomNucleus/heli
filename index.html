@@ -38,6 +38,11 @@ canvas{display:block}
 .assistTag{right:12px;bottom:46px;background:var(--glass);border:1px solid rgba(123,255,180,.2);padding:6px 8px;font-size:10px;color:var(--ok)}
 .reticle{left:50%;top:50%;transform:translate(-50%,-50%);width:44px;height:44px;border:1px solid rgba(186,255,205,.45);border-radius:50%;opacity:.35;display:none}
 #hud.cockpit .reticle{display:block}
+#cockpitFrame{position:absolute;inset:0;display:none;pointer-events:none}
+#hud.cockpit #cockpitFrame{display:block}
+#cockpitFrame:before,#cockpitFrame:after{content:"";position:absolute;top:0;bottom:0;width:15%;background:linear-gradient(90deg,rgba(0,0,0,.6),transparent)}
+#cockpitFrame:after{right:0;transform:scaleX(-1)}
+#cockpitFrame .bar{position:absolute;left:50%;transform:translateX(-50%);top:0;width:2px;height:100%;background:linear-gradient(rgba(180,255,210,.35),rgba(180,255,210,0));opacity:.5}
 .overlay{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:linear-gradient(170deg,rgba(2,7,20,.94),rgba(0,0,0,.95));color:#d8ffe7}
 .panel{width:min(920px,92vw);max-height:92vh;overflow:auto;background:rgba(4,12,12,.88);border:1px solid rgba(126,255,180,.25);box-shadow:0 0 60px rgba(0,255,140,.08);padding:24px}
 .h1{font-size:38px;letter-spacing:.3em;color:#b8ffcd;text-shadow:0 0 30px rgba(120,255,180,.34)}
@@ -54,10 +59,18 @@ button:hover{background:#0f3022;cursor:pointer}
 .tag{display:inline-block;border:1px solid rgba(126,255,180,.35);padding:2px 6px;font-size:10px;margin-right:6px;color:#a5ffc5}
 #onboard{position:fixed;right:14px;top:90px;z-index:30;max-width:280px;background:rgba(2,10,7,.8);border:1px solid rgba(126,255,180,.2);padding:10px;font-size:11px;color:#b7ffd0;line-height:1.5;display:none}
 #onboard.show{display:block}
+#rushFx{position:fixed;inset:0;z-index:18;pointer-events:none;background:radial-gradient(circle at 50% 50%,transparent 40%,rgba(120,220,255,.08) 70%,rgba(255,180,120,.16));opacity:0;transition:opacity .12s}
+#bootSequence,#missionIntro{position:fixed;inset:0;z-index:45;display:none;align-items:center;justify-content:center;pointer-events:none}
+#bootSequence.show,#missionIntro.show{display:flex}
+#bootSequence .txt{font-size:72px;letter-spacing:.28em;color:#d7ffee;text-shadow:0 0 30px rgba(140,255,205,.7)}
+#missionIntro .card{min-width:520px;backdrop-filter:blur(6px);background:rgba(3,10,14,.62);border:1px solid rgba(140,255,210,.4);padding:20px;box-shadow:0 0 40px rgba(0,255,180,.15)}
+#missionIntro h2{font-size:24px;letter-spacing:.18em;margin-bottom:8px}
+#missionIntro p{font-size:12px;color:rgba(210,255,230,.8)}
 </style>
 </head>
 <body>
 <div id="app"></div>
+<div id="rushFx"></div>
 
 <div id="hud">
   <div class="topBar">
@@ -87,6 +100,7 @@ button:hover{background:#0f3022;cursor:pointer}
   <div class="assistTag" id="assistTag">ASSIST ARCADE</div>
   <div class="cameraTag" id="camTag">CAM CHASE</div>
   <div class="reticle"></div>
+  <div id="cockpitFrame"><div class="bar"></div></div>
 </div>
 
 <div id="onboard">
@@ -94,6 +108,9 @@ button:hover{background:#0f3022;cursor:pointer}
   Click <strong>ENTER FLIGHT</strong>, then <strong>Left Click</strong> to lock mouse.<br>
   Mouse = cyclic (up pushes nose down), Scroll = collective, Q/E = yaw, C = camera, P = pause, R = reset.
 </div>
+
+<div id="bootSequence"><div class="txt" id="bootTxt">3</div></div>
+<div id="missionIntro"><div class="card"><h2 id="introTitle">MISSION</h2><p id="introBody"></p></div></div>
 
 <div class="overlay" id="titleScreen">
   <div class="panel">
@@ -146,6 +163,8 @@ const app = document.getElementById('app');
 const ui = {
   hud: document.getElementById('hud'), warning:document.getElementById('warning'), scenario:document.getElementById('scenario'),
   title:document.getElementById('titleScreen'), pause:document.getElementById('pauseMenu'), onboard:document.getElementById('onboard'),
+  rush:document.getElementById('rushFx'), boot:document.getElementById('bootSequence'), bootTxt:document.getElementById('bootTxt'),
+  missionIntro:document.getElementById('missionIntro'), introTitle:document.getElementById('introTitle'), introBody:document.getElementById('introBody'),
   modeTxt:document.getElementById('modeTxt'), timerTxt:document.getElementById('timerTxt'), hdgTxt:document.getElementById('hdgTxt'),
   spd:document.getElementById('spdVal'), alt:document.getElementById('altVal'), agl:document.getElementById('aglVal'), vs:document.getElementById('vsVal'),
   att:document.getElementById('attVal'), eng:document.getElementById('engVal'), camTag:document.getElementById('camTag'), assistTag:document.getElementById('assistTag'),
@@ -166,6 +185,7 @@ const CONFIG={
 
 const state={
   running:false, paused:false, pointerLocked:false, firstRun:true,
+  booting:false, bootTimer:0, introTimer:0,
   assist:'arcade', mode:'free', elapsed:0, missionTime:0, missionDone:false,
   spawnProtection:0, startupPhase:'READY',
   camMode:0, camModes:['CHASE','PURSUIT','COCKPIT','CINEMATIC'],
@@ -221,6 +241,8 @@ function addCheckpoint(x,y,z,r=16,color=0x8ef3ff){const t=new THREE.Mesh(new THR
 function addRunwayMarkers(xStart,xEnd,z){for(let x=xStart;x<=xEnd;x+=60){const y=terrainHeight(x,z)+.12;const m=new THREE.Mesh(new THREE.BoxGeometry(20,.22,2.4),new THREE.MeshLambertMaterial({color:0xf1f1d1}));m.position.set(x,y,z);world.add(m)}}
 addPad(0,0,22);addPad(520,-280,18);addPad(-880,420,20);addPad(950,780,20);addTower(320,180,92);addTower(-460,-720,120);addTower(920,-220,84);addTower(-1020,910,130);
 addRunwayMarkers(-720,720,0);
+for(const p of pads){for(let i=0;i<8;i++){const a=i/8*Math.PI*2;const l=new THREE.PointLight(0x7af9ff,.55,45);l.position.set(p.x+Math.cos(a)*(p.r*.92),p.y+1.2,p.z+Math.sin(a)*(p.r*.92));world.add(l)}}
+for(let i=0;i<120;i++){const x=(Math.random()>.5?1:-1)*(1800+Math.random()*2200);const z=(Math.random()-.5)*3200;const h=terrainHeight(x,z)+4+Math.random()*28;const b=new THREE.Mesh(new THREE.BoxGeometry(12,10+Math.random()*36,12),new THREE.MeshLambertMaterial({color:0x1e2526,emissive:0x22332a,emissiveIntensity:.45}));b.position.set(x,h,z);world.add(b);}
 for(let i=0;i<500;i++){const x=(Math.random()-.5)*TS*.84,z=(Math.random()-.5)*TS*.84,h=terrainHeight(x,z);if(h<3||h>170||Math.hypot(x,z)<180)continue;const s=.6+Math.random()*1.2;const t1=new THREE.Mesh(new THREE.CylinderGeometry(.32,.55,4.8,6),new THREE.MeshLambertMaterial({color:0x5f3a13}));t1.position.set(x,h+2.2*s,z);t1.scale.setScalar(s);t1.castShadow=true;world.add(t1);const c1=new THREE.Mesh(new THREE.ConeGeometry(4.5*s,6.4*s,7),new THREE.MeshLambertMaterial({color:Math.random()>.5?0x28561c:0x215118}));c1.position.set(x,h+6*s,z);c1.castShadow=true;world.add(c1)}
 
 // clouds
@@ -255,8 +277,8 @@ const dustMat=new THREE.PointsMaterial({size:2,color:0xcfbf7a,transparent:true,o
 const streakGeo=new THREE.BufferGeometry(),SCNT=340,sPos=new Float32Array(SCNT*3);streakGeo.setAttribute('position',new THREE.BufferAttribute(sPos,3));const streakMat=new THREE.PointsMaterial({size:1.6,color:0xd6f3ff,transparent:true,opacity:0,depthWrite:false});const streak=new THREE.Points(streakGeo,streakMat);scene.add(streak);
 
 // ===== Audio Engine =====
-function initAudio(){if(state.audio.ready||!state.audio.enabled)return;const ctx=new (window.AudioContext||window.webkitAudioContext)();const master=ctx.createGain();master.gain.value=.14;master.connect(ctx.destination);const rotor=ctx.createOscillator(),rotorG=ctx.createGain();rotor.type='sawtooth';rotor.frequency.value=24;rotorG.gain.value=0;rotor.connect(rotorG).connect(master);rotor.start();const chop=ctx.createOscillator(),chopG=ctx.createGain();chop.type='square';chop.frequency.value=7;chopG.gain.value=0;chop.connect(chopG).connect(master);chop.start();const wind=ctx.createBiquadFilter();wind.type='highpass';wind.frequency.value=500;const noise=ctx.createBufferSource();const b=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate);const data=b.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=(Math.random()*2-1)*0.65;noise.buffer=b;noise.loop=true;const windG=ctx.createGain();windG.gain.value=0;noise.connect(wind).connect(windG).connect(master);noise.start();const warn=ctx.createOscillator(),warnG=ctx.createGain();warn.frequency.value=880;warn.type='triangle';warnG.gain.value=0;warn.connect(warnG).connect(master);warn.start();state.audio={ctx,master,ready:true,enabled:true,nodes:{rotor,rotorG,chop,chopG,windG,warn,warnG}}}
-function audioUpdate(){if(!state.audio.ready)return;const n=state.audio.nodes,h=state.heli,spd=h.vel.length();n.rotor.frequency.value=20+h.rpm*72;n.rotorG.gain.value=.02+h.rpm*.12;n.chop.frequency.value=4+h.rpm*34;n.chopG.gain.value=.01+h.torque*.05; n.windG.gain.value=Math.min(.15,spd*.0018); const warnOn=(h.vrs>.35||h.damage>.6||state.crash)&&!state.paused;n.warnG.gain.value=warnOn?(Math.sin(performance.now()*0.01)>0?.08:0):0;}
+function initAudio(){if(state.audio.ready||!state.audio.enabled)return;const ctx=new (window.AudioContext||window.webkitAudioContext)();const comp=ctx.createDynamicsCompressor();comp.threshold.value=-24;comp.knee.value=20;comp.ratio.value=3.8;comp.connect(ctx.destination);const master=ctx.createGain();master.gain.value=.18;master.connect(comp);const rotor=ctx.createOscillator(),rotorG=ctx.createGain();rotor.type='sawtooth';rotor.frequency.value=24;rotorG.gain.value=0;rotor.connect(rotorG).connect(master);rotor.start();const sub=ctx.createOscillator(),subG=ctx.createGain();sub.type='triangle';sub.frequency.value=42;subG.gain.value=0;sub.connect(subG).connect(master);sub.start();const chop=ctx.createOscillator(),chopG=ctx.createGain();chop.type='square';chop.frequency.value=7;chopG.gain.value=0;chop.connect(chopG).connect(master);chop.start();const wind=ctx.createBiquadFilter();wind.type='highpass';wind.frequency.value=500;const noise=ctx.createBufferSource();const b=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate);const data=b.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=(Math.random()*2-1)*0.65;noise.buffer=b;noise.loop=true;const windG=ctx.createGain();windG.gain.value=0;noise.connect(wind).connect(windG).connect(master);noise.start();const warn=ctx.createOscillator(),warnG=ctx.createGain();warn.frequency.value=880;warn.type='triangle';warnG.gain.value=0;warn.connect(warnG).connect(master);warn.start();state.audio={ctx,master,ready:true,enabled:true,nodes:{rotor,rotorG,sub,subG,chop,chopG,windG,warn,warnG}}}
+function audioUpdate(){if(!state.audio.ready)return;const n=state.audio.nodes,h=state.heli,spd=h.vel.length();n.rotor.frequency.value=18+h.rpm*84;n.rotorG.gain.value=.03+h.rpm*.16;n.sub.frequency.value=28+h.rpm*44;n.subG.gain.value=.02+h.torque*.04;n.chop.frequency.value=5+h.rpm*45;n.chopG.gain.value=.02+h.torque*.07; n.windG.gain.value=Math.min(.22,spd*.0024); const warnOn=(h.vrs>.35||h.damage>.6||state.crash)&&!state.paused;n.warnG.gain.value=warnOn?(Math.sin(performance.now()*0.014)>0?.1:0):0;}
 function impactSound(power=.6){if(!state.audio.ready)return;const c=state.audio.ctx,o=c.createOscillator(),g=c.createGain();o.type='square';o.frequency.value=90+Math.random()*120;g.gain.value=.13*power;o.connect(g).connect(state.audio.master);o.start();o.stop(c.currentTime+.11)}
 
 // ===== Input =====
@@ -271,6 +293,7 @@ function toggleFullscreen(){if(!document.fullscreenElement)document.documentElem
 
 // ===== Missions =====
 function clearMissionVisuals(){state.scenario.targets.forEach(t=>world.remove(t.mesh));state.scenario.targets=[];state.scenario.index=0;state.scenario.score=0;state.scenario.failed=false;state.scenario.msg='';state.scenario.timer=0;for(const c of checkpoints)c.visible=false}
+function showMissionIntro(){const m=CONFIG.modes.find(x=>x.id===state.mode);ui.introTitle.textContent=m.name.toUpperCase();ui.introBody.textContent=m.goal;ui.missionIntro.classList.add('show');state.introTimer=3.2;}
 function setupMode(mode){state.mode=mode;state.missionDone=false;state.missionTime=0;clearMissionVisuals();ui.modeTxt.textContent='MODE '+CONFIG.modes.find(m=>m.id===mode).name.toUpperCase();
   const s=state.scenario;
   s.groundStart=false;
@@ -281,6 +304,7 @@ function setupMode(mode){state.mode=mode;state.missionDone=false;state.missionTi
   if(mode==='emergency'){s.startPos.set(720,260,730);s.timer=0}
   if(mode==='free'){s.startPos.set(0,terrainHeight(0,0)+1.12,0);s.groundStart=true}
   resetFlight(true);
+  if(state.running)showMissionIntro();
 }
 
 function missionUpdate(dt){const h=state.heli, s=state.scenario;state.missionTime+=dt;const agl=h.pos.y-terrainHeight(h.pos.x,h.pos.z);if(state.mode==='hover'&&!state.crash){const d=Math.hypot(h.pos.x,h.pos.z);if(d<14&&agl>4&&agl<12&&Math.abs(h.vel.y)<2.2&&Math.abs(h.roll)<0.18&&Math.abs(h.pitch)<0.18)s.score+=dt;else s.score=Math.max(0,s.score-dt*0.5);if(s.score>35){finishMission('Hover stable. Training complete.')}}
@@ -289,8 +313,8 @@ if((state.mode==='checkpoint'||state.mode==='lowrun')&&!state.crash){const idx=s
 if(s.index>=s.targets.length)finishMission('Route complete. Excellent flying.');if(state.mode==='checkpoint'&&state.missionTime>220)failMission('Checkpoint timer expired.')}
 if(state.mode==='emergency'&&!state.crash){if(state.missionTime>8&&h.engineHealth>.45)h.engineHealth-=dt*0.06;if(h.onGround&&h.vel.length()<5&&h.vel.y>-4&&agl<2.2)finishMission('Emergency landing survived.');if(h.onGround&&h.vel.y<-6)failMission('Emergency landing failed.')}
 }
-function finishMission(msg){if(state.missionDone)return;state.missionDone=true;state.scenario.msg='✅ '+msg}
-function failMission(msg){if(state.scenario.failed||state.missionDone)return;state.scenario.failed=true;state.scenario.msg='❌ '+msg}
+function finishMission(msg){if(state.missionDone)return;state.missionDone=true;state.scenario.msg='✅ '+msg;ui.introTitle.textContent='MISSION COMPLETE';ui.introBody.textContent=msg;ui.missionIntro.classList.add('show');state.introTimer=3;}
+function failMission(msg){if(state.scenario.failed||state.missionDone)return;state.scenario.failed=true;state.scenario.msg='❌ '+msg;ui.introTitle.textContent='MISSION FAILED';ui.introBody.textContent=msg;ui.missionIntro.classList.add('show');state.introTimer=3;}
 
 // ===== Flight model =====
 const quat=new THREE.Quaternion();const eul=new THREE.Euler(0,0,0,'YXZ');
@@ -397,6 +421,7 @@ function cameraUpdate(dt){const h=state.heli;const q=heli.quaternion;const speed
   const dest=h.pos.clone().add(off.applyQuaternion(q));const look=h.pos.clone().add(lookOff.applyQuaternion(q)).add(vLook);dest.x+=shake;dest.y+=shake*0.38;
   const posLerp=state.camMode===2?0.22:0.11,lookLerp=state.camMode===2?0.28:0.14;
   camState.pos.lerp(dest,posLerp);camState.look.lerp(look,lookLerp);camera.position.copy(camState.pos);camera.lookAt(camState.look);
+  camera.fov=THREE.MathUtils.lerp(camera.fov,66+Math.min(16,speed*.14)+(state.camMode===2?-8:0),0.08);camera.updateProjectionMatrix();
 }
 
 // ===== HUD Drawing =====
@@ -426,18 +451,22 @@ drawADI(h.pitch,h.roll);drawGauge(gColl,h.collective,'#b7ffd0','COL');drawGauge(
 // ===== Main loop =====
 let last=performance.now();
 function loop(){requestAnimationFrame(loop);const now=performance.now();const dt=Math.min(.04,(now-last)/1000);last=now;if(!state.running||state.paused)return;state.elapsed+=dt;updateFlight(dt);missionUpdate(dt);audioUpdate();
+  if(state.booting){state.bootTimer-=dt;ui.boot.classList.add('show');ui.bootTxt.textContent=state.bootTimer>2?'3':state.bootTimer>1?'2':state.bootTimer>0?'1':'FLY';if(state.bootTimer<=0){state.booting=false;ui.boot.classList.remove('show');}}
+  if(state.introTimer>0){state.introTimer-=dt;if(state.introTimer<=0)ui.missionIntro.classList.remove('show');}
   // visuals
   heli.position.copy(state.heli.pos);heli.quaternion.setFromEuler(new THREE.Euler(state.heli.pitch,state.heli.yaw,state.heli.roll,'YXZ'));
   const rps=state.heli.rpm*10.6;rotorG.rotation.y+=rps*dt*Math.PI*2;tailRot.rotation.z+=rps*5.2*dt*Math.PI*2;rotorBlur.material.opacity=Math.max(0,(state.heli.rpm-.3)*1.3);
   spot.intensity=(state.heli.pos.y-terrainHeight(state.heli.pos.x,state.heli.pos.z)<52)?4.2:0;
   const blink=Math.sin(now*.0038)>0;lightL.intensity=blink?.95:0;lightR.intensity=.6;
   const agl=state.heli.pos.y-terrainHeight(state.heli.pos.x,state.heli.pos.z);
+  const rush=(state.heli.vel.length()>38&&agl<65)?Math.min(1,(state.heli.vel.length()-38)/45)*(1-agl/90):0;ui.rush.style.opacity=(rush*0.8).toFixed(2);
   // dust
   const da=dustGeo.attributes.position.array,active=agl<20&&state.heli.rpm>.24;for(let i=0;i<DCOUNT;i++){dLife[i]-=dt;if(dLife[i]<=0){if(active){const a=Math.random()*Math.PI*2,r=Math.random()*7;da[i*3]=state.heli.pos.x+Math.cos(a)*r;da[i*3+1]=terrainHeight(state.heli.pos.x,state.heli.pos.z)+.4;da[i*3+2]=state.heli.pos.z+Math.sin(a)*r;dVel[i].set((Math.random()-.5)*6*state.heli.rpm,Math.random()*2.8*state.heli.rpm,(Math.random()-.5)*6*state.heli.rpm);dLife[i]=1.2+Math.random()*1.6}}else{da[i*3]+=dVel[i].x*dt;da[i*3+1]+=dVel[i].y*dt;da[i*3+2]+=dVel[i].z*dt;dVel[i].y-=.42*dt}}dustGeo.attributes.position.needsUpdate=true;dustMat.opacity=active?.42:Math.max(0,dustMat.opacity-dt*.8);
   // speed streak
-  const sa=streakGeo.attributes.position.array;const spd=state.heli.vel.length();const streakOn=spd>35&&agl<90;for(let i=0;i<SCNT;i++){if(streakOn){const p=i*3;sa[p]=camera.position.x+(Math.random()-.5)*18;sa[p+1]=camera.position.y+(Math.random()-.5)*10;sa[p+2]=camera.position.z-Math.random()*40;} }streakGeo.attributes.position.needsUpdate=true;streakMat.opacity=streakOn?Math.min(.28,(spd-35)*0.004):0;
+  const sa=streakGeo.attributes.position.array;const spd=state.heli.vel.length();const streakOn=spd>30&&agl<100;for(let i=0;i<SCNT;i++){if(streakOn){const p=i*3;sa[p]=camera.position.x+(Math.random()-.5)*22;sa[p+1]=camera.position.y+(Math.random()-.5)*12;sa[p+2]=camera.position.z-Math.random()*52;} }streakGeo.attributes.position.needsUpdate=true;streakMat.opacity=streakOn?Math.min(.45,(spd-30)*0.006):0;
   // clouds face camera
   cloudG.children.forEach(c=>c.children.forEach(m=>m.lookAt(camera.position)));
+  state.scenario.targets.forEach((t,i)=>{if(t.mesh&&t.mesh.visible!==false){const p=1+Math.sin(now*0.004+i)*0.08;t.mesh.scale.setScalar(p);t.mesh.material.opacity=0.45+Math.sin(now*0.006+i)*0.2;}});
   sun.position.set(state.heli.pos.x+600,state.heli.pos.y+900,state.heli.pos.z+220);sun.target.position.copy(state.heli.pos);sun.target.updateMatrixWorld();
   cameraUpdate(dt);hudUpdate();renderer.render(scene,camera);
 }
@@ -450,7 +479,7 @@ const modeButtons=document.getElementById('modeButtons');CONFIG.modes.forEach((m
 const assistButtons=document.getElementById('assistButtons');['arcade','realistic','hover'].forEach((a,i)=>{const b=document.createElement('button');b.textContent=a.toUpperCase();b.onclick=()=>{setAssist(a);[...assistButtons.children].forEach(n=>n.style.borderColor='rgba(126,255,180,.35)');b.style.borderColor='#8ef3ff'};if(i===0)b.style.borderColor='#8ef3ff';assistButtons.appendChild(b)});
 setupMode('free');
 
-document.getElementById('startBtn').onclick=()=>{state.running=true;state.paused=false;ui.title.style.display='none';ui.hud.classList.add('active');ui.onboard.classList.toggle('show',state.firstRun);state.firstRun=false;if(document.getElementById('audioSel').value==='off')state.audio.enabled=false;renderer.domElement.requestPointerLock();if(document.getElementById('gfxSel').value==='low'){renderer.shadowMap.enabled=false;scene.fog.density=0.00052}else if(document.getElementById('gfxSel').value==='medium'){sun.shadow.mapSize.set(1024,1024)};
+document.getElementById('startBtn').onclick=()=>{state.running=true;state.paused=false;state.booting=true;state.bootTimer=3.05;ui.title.style.display='none';ui.hud.classList.add('active');ui.onboard.classList.toggle('show',state.firstRun);state.firstRun=false;showMissionIntro();if(document.getElementById('audioSel').value==='off')state.audio.enabled=false;renderer.domElement.requestPointerLock();if(document.getElementById('gfxSel').value==='low'){renderer.shadowMap.enabled=false;scene.fog.density=0.00052}else if(document.getElementById('gfxSel').value==='medium'){sun.shadow.mapSize.set(1024,1024)};
 };
 document.getElementById('howBtn').onclick=()=>ui.onboard.classList.toggle('show');
 document.getElementById('resumeBtn').onclick=()=>togglePause();
