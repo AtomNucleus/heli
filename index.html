@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>HELO STRIKE // Mini Simulator</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:Consolas,Monaco,monospace;color:#bbffd1}
+canvas{display:block}
+:root{--hud:#b7ffd0;--dim:rgba(183,255,208,.52);--glass:rgba(5,16,10,.66);--warn:#ff6940;--ok:#8ef3ff}
+#app{position:fixed;inset:0}
+#hud{position:fixed;inset:0;pointer-events:none;z-index:20;opacity:0;transition:opacity .4s}
+#hud.active{opacity:1}
+#hud:after{content:"";position:absolute;inset:0;background:radial-gradient(ellipse 88% 88% at 50% 50%,transparent 58%,rgba(0,0,0,.56));z-index:0}
+.topBar,.leftPanel,.rightPanel,.bottomBar,.warningStack,.scenarioBox,.cameraTag,.assistTag,.reticle{position:absolute;z-index:2}
+.topBar{left:50%;transform:translateX(-50%);top:12px;width:min(560px,64vw)}
+#headingTape{height:28px;border:1px solid rgba(123,255,180,.26);background:var(--glass);overflow:hidden;position:relative}
+#headingInner{position:absolute;display:flex;align-items:center;height:100%;top:0;white-space:nowrap;color:rgba(170,255,204,.6);font-size:10px}
+#headingTape:after{content:"▼";position:absolute;left:50%;top:1px;transform:translateX(-50%);font-size:8px;color:var(--hud)}
+#topReadout{display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--dim)}
+.leftPanel{left:12px;top:14px;display:flex;flex-direction:column;gap:8px}
+.rightPanel{right:12px;top:14px;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+.box{min-width:128px;background:var(--glass);border:1px solid rgba(123,255,180,.2);padding:6px 8px}
+.box .k{font-size:9px;letter-spacing:.12em;color:var(--dim)}
+.box .v{font-size:20px;color:var(--hud);line-height:1.1}
+.box .u{font-size:9px;color:var(--dim)}
+.bottomBar{left:50%;transform:translateX(-50%);bottom:18px;display:flex;gap:12px;align-items:flex-end}
+#adiWrap{position:relative;width:140px;height:140px;background:var(--glass);border:1px solid rgba(123,255,180,.2);padding:8px}
+#adi{width:124px;height:124px}
+#gauges{display:flex;gap:8px}
+.g{width:86px;height:86px;background:var(--glass);border:1px solid rgba(123,255,180,.2);padding:5px}
+.g canvas{width:74px;height:74px}
+.warningStack{left:50%;top:38%;transform:translate(-50%,-50%);text-align:center;font-size:15px;letter-spacing:.22em;color:var(--warn);text-shadow:0 0 12px #ff4411;opacity:0;transition:opacity .15s}
+.scenarioBox{left:12px;bottom:12px;min-width:280px;max-width:34vw;background:var(--glass);border:1px solid rgba(123,255,180,.2);padding:8px;font-size:10px;line-height:1.5;color:var(--dim)}
+.scenarioBox strong{color:var(--hud)}
+.cameraTag{right:12px;bottom:12px;background:var(--glass);border:1px solid rgba(123,255,180,.2);padding:6px 8px;font-size:10px;color:var(--dim)}
+.assistTag{right:12px;bottom:46px;background:var(--glass);border:1px solid rgba(123,255,180,.2);padding:6px 8px;font-size:10px;color:var(--ok)}
+.reticle{left:50%;top:50%;transform:translate(-50%,-50%);width:44px;height:44px;border:1px solid rgba(186,255,205,.45);border-radius:50%;opacity:.35;display:none}
+#hud.cockpit .reticle{display:block}
+.overlay{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:linear-gradient(170deg,rgba(2,7,20,.94),rgba(0,0,0,.95));color:#d8ffe7}
+.panel{width:min(920px,92vw);max-height:92vh;overflow:auto;background:rgba(4,12,12,.88);border:1px solid rgba(126,255,180,.25);box-shadow:0 0 60px rgba(0,255,140,.08);padding:24px}
+.h1{font-size:38px;letter-spacing:.3em;color:#b8ffcd;text-shadow:0 0 30px rgba(120,255,180,.34)}
+.sub{opacity:.68;font-size:12px;letter-spacing:.16em;margin-top:6px}
+.grid{display:grid;grid-template-columns:1.3fr 1fr;gap:18px;margin-top:22px}
+.card{border:1px solid rgba(126,255,180,.2);padding:12px;background:rgba(10,24,20,.38)}
+.card h3{font-size:13px;letter-spacing:.16em;color:#b8ffcd;margin-bottom:8px}
+button,select{background:#081812;border:1px solid rgba(126,255,180,.35);color:#b9ffd1;padding:8px 10px;font-family:inherit}
+button:hover{background:#0f3022;cursor:pointer}
+.btnRow{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.kv{display:flex;justify-content:space-between;border-bottom:1px solid rgba(126,255,180,.1);padding:4px 0;font-size:11px;gap:10px}
+#pauseMenu{display:none}
+#pauseMenu.show{display:flex}
+.tag{display:inline-block;border:1px solid rgba(126,255,180,.35);padding:2px 6px;font-size:10px;margin-right:6px;color:#a5ffc5}
+#onboard{position:fixed;right:14px;top:90px;z-index:30;max-width:280px;background:rgba(2,10,7,.8);border:1px solid rgba(126,255,180,.2);padding:10px;font-size:11px;color:#b7ffd0;line-height:1.5;display:none}
+#onboard.show{display:block}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="hud">
+  <div class="topBar">
+    <div id="headingTape"><div id="headingInner"></div></div>
+    <div id="topReadout"><span id="hdgTxt">HDG 000°</span><span id="modeTxt">MODE FREE FLIGHT</span><span id="timerTxt">00:00</span></div>
+  </div>
+  <div class="leftPanel">
+    <div class="box"><div class="k">AIRSPEED</div><div class="v" id="spdVal">0</div><div class="u">KNOTS</div></div>
+    <div class="box"><div class="k">ALTITUDE MSL</div><div class="v" id="altVal">0</div><div class="u">METERS</div></div>
+    <div class="box"><div class="k">RADAR ALT</div><div class="v" id="aglVal">0</div><div class="u">M AGL</div></div>
+  </div>
+  <div class="rightPanel">
+    <div class="box"><div class="k">VERT SPEED</div><div class="v" id="vsVal">+0.0</div><div class="u">M/S</div></div>
+    <div class="box"><div class="k">BANK / PITCH</div><div class="v" id="attVal">0° / 0°</div><div class="u">ATTITUDE</div></div>
+    <div class="box"><div class="k">TORQUE / RPM</div><div class="v" id="engVal">0% / 0%</div><div class="u">POWER</div></div>
+  </div>
+  <div class="bottomBar">
+    <div id="adiWrap"><canvas id="adi" width="124" height="124"></canvas></div>
+    <div id="gauges">
+      <div class="g"><canvas id="gColl" width="74" height="74"></canvas></div>
+      <div class="g"><canvas id="gRpm" width="74" height="74"></canvas></div>
+      <div class="g"><canvas id="gLoad" width="74" height="74"></canvas></div>
+    </div>
+  </div>
+  <div class="warningStack" id="warning"></div>
+  <div class="scenarioBox" id="scenario"></div>
+  <div class="assistTag" id="assistTag">ASSIST ARCADE</div>
+  <div class="cameraTag" id="camTag">CAM CHASE</div>
+  <div class="reticle"></div>
+</div>
+
+<div id="onboard">
+  <strong>Quick Start</strong><br>
+  Click <strong>ENTER FLIGHT</strong>, then <strong>Left Click</strong> to lock mouse.<br>
+  Mouse = cyclic (up pushes nose down), Scroll = collective, Q/E = yaw, C = camera, P = pause, R = reset.
+</div>
+
+<div class="overlay" id="titleScreen">
+  <div class="panel">
+    <div class="h1">HELO STRIKE</div>
+    <div class="sub">TACTICAL ROTORCRAFT MINI-SIM // Browser Edition</div>
+    <div class="grid">
+      <div class="card">
+        <h3>Mission</h3>
+        <div class="btnRow" id="modeButtons"></div>
+        <h3 style="margin-top:14px">Assist</h3>
+        <div class="btnRow" id="assistButtons"></div>
+        <h3 style="margin-top:14px">Settings</h3>
+        <div class="kv"><span>Graphics</span><select id="gfxSel"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></div>
+        <div class="kv"><span>Audio</span><select id="audioSel"><option value="on">On</option><option value="off">Off</option></select></div>
+        <div class="btnRow">
+          <button id="startBtn">ENTER FLIGHT</button>
+          <button id="howBtn">TOGGLE CONTROLS</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Controls</h3>
+        <div class="kv"><span>Mouse X / Y</span><span>Roll / Pitch</span></div>
+        <div class="kv"><span>Scroll</span><span>Collective</span></div>
+        <div class="kv"><span>Q / E</span><span>Yaw Pedals</span></div>
+        <div class="kv"><span>C</span><span>Camera Mode</span></div>
+        <div class="kv"><span>F</span><span>Fullscreen</span></div>
+        <div class="kv"><span>P</span><span>Pause Menu</span></div>
+        <div class="kv"><span>R</span><span>Reset Aircraft</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="pauseMenu">
+  <div class="panel" style="max-width:620px">
+    <div class="h1" style="font-size:26px">PAUSED</div>
+    <div class="sub">Flight clock and mission timers are frozen.</div>
+    <div class="btnRow" style="margin-top:20px">
+      <button id="resumeBtn">RESUME</button>
+      <button id="resetBtn">RESET AIRCRAFT</button>
+      <button id="titleBtn">RETURN TO TITLE</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+const app = document.getElementById('app');
+const ui = {
+  hud: document.getElementById('hud'), warning:document.getElementById('warning'), scenario:document.getElementById('scenario'),
+  title:document.getElementById('titleScreen'), pause:document.getElementById('pauseMenu'), onboard:document.getElementById('onboard'),
+  modeTxt:document.getElementById('modeTxt'), timerTxt:document.getElementById('timerTxt'), hdgTxt:document.getElementById('hdgTxt'),
+  spd:document.getElementById('spdVal'), alt:document.getElementById('altVal'), agl:document.getElementById('aglVal'), vs:document.getElementById('vsVal'),
+  att:document.getElementById('attVal'), eng:document.getElementById('engVal'), camTag:document.getElementById('camTag'), assistTag:document.getElementById('assistTag'),
+  headingInner:document.getElementById('headingInner')
+};
+
+const CONFIG={
+  assists:{ arcade:{stab:0.82,yawDamp:0.8,hover:0.65,power:1.22,vrs:0.5,tailLoss:0.45}, realistic:{stab:0.34,yawDamp:0.42,hover:0.08,power:1.0,vrs:1,tailLoss:1}, hover:{stab:0.9,yawDamp:0.86,hover:0.92,power:1.1,vrs:0.62,tailLoss:0.5}},
+  modes:[
+    {id:'free',name:'Free Flight',desc:'Explore terrain freely.',goal:'Fly anywhere. Try low level runs and smooth landings.'},
+    {id:'hover',name:'Hover Training',desc:'Hold stable hover near pad.',goal:'Stay within 14m radius and 4-12m AGL for 35s.'},
+    {id:'landing',name:'Precision Landing',desc:'Land at marked helipad.',goal:'Touch down on target with VS > -2.4 m/s and low bank.'},
+    {id:'checkpoint',name:'Checkpoint Route',desc:'Thread valley markers.',goal:'Hit all 8 rings before 3:40 timer expires.'},
+    {id:'lowrun',name:'Low Altitude Run',desc:'Nap-of-earth challenge.',goal:'Pass all gates while staying below 35m AGL.'},
+    {id:'emergency',name:'Emergency Descent',desc:'Engine fault simulation.',goal:'Manage collective and survive autorotation-style landing.'}
+  ]
+};
+
+const state={
+  running:false, paused:false, pointerLocked:false, firstRun:true,
+  assist:'arcade', mode:'free', elapsed:0, missionTime:0, missionDone:false,
+  camMode:0, camModes:['CHASE','PURSUIT','COCKPIT','CINEMATIC'],
+  crash:false, crashTimer:0, hardContact:0, touchdownShake:0,
+  input:{mx:0,my:0,scroll:0.16,pedal:0,keys:{}},
+  heli:{pos:new THREE.Vector3(0,36,0),vel:new THREE.Vector3(),acc:new THREE.Vector3(),pitch:0,roll:0,yaw:0,pRate:0,rRate:0,yRate:0,collective:0.1,targetCollective:0.1,rpm:0.02,engineHealth:1,stress:0,damage:0,torque:0,vrs:0,tailLoss:0,onGround:false},
+  scenario:{targets:[],index:0,score:0,msg:'',timer:0,failed:false,startPos:new THREE.Vector3(0,36,0)},
+  audio:{ctx:null,master:null,ready:false,enabled:true,nodes:{}},
+  view:{targetShake:0,cinT:0}
+};
+
+// ===== Renderer / Scene =====
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.04;
+app.appendChild(renderer.domElement);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(66,innerWidth/innerHeight,.2,13000);
+scene.fog=new THREE.FogExp2(0x89c9ef,0.00046);
+
+// ===== Sky =====
+const skyMat=new THREE.ShaderMaterial({side:THREE.BackSide,uniforms:{uTop:{value:new THREE.Color(0x071934)},uMid:{value:new THREE.Color(0x3d7dc4)},uBot:{value:new THREE.Color(0x9cdff7)},uSun:{value:new THREE.Vector3(.42,.69,.31).normalize()},uSunCol:{value:new THREE.Color(0xfff0b2)}},vertexShader:`varying vec3 v;void main(){v=normalize((modelMatrix*vec4(position,1.)).xyz);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+fragmentShader:`uniform vec3 uTop,uMid,uBot,uSun,uSunCol;varying vec3 v;void main(){float y=clamp(v.y,-1.,1.);vec3 c=mix(uBot,uMid,smoothstep(-.2,.3,y));c=mix(c,uTop,smoothstep(.25,1.,y));float sun=pow(max(dot(v,uSun),0.),450.);float glow=pow(max(dot(v,uSun),0.),7.)*.2;float haze=smoothstep(.07,-.06,abs(y))*.4;c+=uSunCol*(sun+glow);c=mix(c,uBot*1.2,haze);gl_FragColor=vec4(c,1.);} `});
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(10000,32,14),skyMat));
+
+// ===== Lighting =====
+scene.add(new THREE.AmbientLight(0x3f5272,.95));
+const hemi=new THREE.HemisphereLight(0x6ea6d5,0x4d3d2a,.65);scene.add(hemi);
+const sun=new THREE.DirectionalLight(0xfff5d8,2.4);sun.position.set(600,900,220);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);sun.shadow.camera.left=sun.shadow.camera.bottom=-930;sun.shadow.camera.right=sun.shadow.camera.top=930;sun.shadow.camera.far=2800;sun.shadow.bias=-0.0004;scene.add(sun);
+
+// ===== Terrain =====
+function h21(x,z){const n=Math.sin(x*127.1+z*311.7)*43758.5453;return n-Math.floor(n)}
+function sn(x,z){const ix=Math.floor(x),iz=Math.floor(z),fx=x-ix,fz=z-iz,ux=fx*fx*(3-2*fx),uz=fz*fz*(3-2*fz);return h21(ix,iz)*(1-ux)*(1-uz)+h21(ix+1,iz)*ux*(1-uz)+h21(ix,iz+1)*(1-ux)*uz+h21(ix+1,iz+1)*ux*uz}
+function fbm(x,z,o=6){let v=0,a=.5,f=1;for(let i=0;i<o;i++){v+=a*sn(x*f,z*f);a*=.5;f*=2.03}return v}
+function roadMask(x,z){const d=Math.abs(z*0.25+Math.sin(x*0.0015)*220);return Math.max(0,1-d/80)}
+function terrainHeight(x,z){const d=Math.hypot(x,z);const base=fbm(x*.0008,z*.0008,7)*290-52+fbm(x*.0035,z*.0035,4)*34;const canyon=Math.sin(x*0.0011)*48*Math.exp(-Math.abs(z)/950);const flatten=Math.max(0,1-Math.max(0,220-d)/220);const runway=-roadMask(x,z)*5;return flatten*(base+canyon)+runway;}
+const TS=9000,SEG=170;const tGeo=new THREE.PlaneGeometry(TS,TS,SEG,SEG);tGeo.rotateX(-Math.PI/2);
+const pa=tGeo.attributes.position.array;const col=new Float32Array(pa.length);
+const cSnow=[.94,.97,1],cRock=[.45,.42,.37],cGrass=[.26,.52,.2],cDirt=[.41,.33,.22],cSand=[.62,.57,.39],cRoad=[.22,.21,.2];
+function mix(a,b,t){return[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]}
+for(let i=0;i<pa.length;i+=3){const x=pa[i],z=pa[i+2],h=terrainHeight(x,z);pa[i+1]=h;const hx=terrainHeight(x+8,z)-terrainHeight(x-8,z),hz=terrainHeight(x,z+8)-terrainHeight(x,z-8);const slope=Math.min(1,Math.hypot(hx,hz)/22);let c;if(h>210)c=mix(cRock,cSnow,Math.min(1,(h-210)/80));else if(h>110)c=mix(cGrass,cRock,(h-110)/100);else if(h>28)c=cGrass;else if(h>4)c=mix(cDirt,cGrass,(h-4)/24);else c=cSand; if(slope>.62)c=mix(c,cRock,(slope-.62)/.38); const road=roadMask(x,z); if(road>.25)c=mix(c,cRoad,Math.min(.85,road*.9)); col[i]=c[0];col[i+1]=c[1];col[i+2]=c[2];}
+tGeo.computeVertexNormals();tGeo.setAttribute('color',new THREE.BufferAttribute(col,3));
+const terrain=new THREE.Mesh(tGeo,new THREE.MeshLambertMaterial({vertexColors:true}));terrain.receiveShadow=true;scene.add(terrain);
+const water=new THREE.Mesh(new THREE.PlaneGeometry(TS,TS),new THREE.MeshLambertMaterial({color:0x1c5f8d,transparent:true,opacity:.78}));water.rotation.x=-Math.PI/2;water.position.y=-2.2;scene.add(water);
+
+// ===== World Props =====
+const world=new THREE.Group();scene.add(world);const pads=[],obstacles=[],checkpoints=[];
+function addPad(x,z,r=18){const g=new THREE.CylinderGeometry(r,r,1.4,24);const m=new THREE.MeshLambertMaterial({color:0x2d3435});const p=new THREE.Mesh(g,m);p.position.set(x,terrainHeight(x,z)+.7,z);p.receiveShadow=true;world.add(p);const ring=new THREE.Mesh(new THREE.TorusGeometry(r*.72,.7,8,24),new THREE.MeshBasicMaterial({color:0xb6ffd0}));ring.rotation.x=-Math.PI/2;ring.position.set(x,p.position.y+.8,z);world.add(ring);pads.push({x,z,y:p.position.y+1,r});}
+function addTower(x,z,h=80){const body=new THREE.Mesh(new THREE.CylinderGeometry(1.4,2.6,h,9),new THREE.MeshLambertMaterial({color:0x545861}));body.position.set(x,terrainHeight(x,z)+h/2,z);body.castShadow=true;world.add(body);const top=new THREE.Mesh(new THREE.SphereGeometry(2.4,8,8),new THREE.MeshLambertMaterial({color:0xff3333,emissive:0x440000}));top.position.set(x,body.position.y+h/2,z);world.add(top);obstacles.push({x,z,y:body.position.y+h/2,r:4.5});}
+function addCheckpoint(x,y,z,r=16,color=0x8ef3ff){const t=new THREE.Mesh(new THREE.TorusGeometry(r,1.2,8,20),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.6}));t.position.set(x,y,z);t.rotation.y=Math.random()*Math.PI;world.add(t);checkpoints.push(t);return t}
+addPad(0,0,22);addPad(520,-280,18);addPad(-880,420,20);addPad(950,780,20);addTower(320,180,92);addTower(-460,-720,120);addTower(920,-220,84);addTower(-1020,910,130);
+for(let i=0;i<500;i++){const x=(Math.random()-.5)*TS*.84,z=(Math.random()-.5)*TS*.84,h=terrainHeight(x,z);if(h<3||h>170||Math.hypot(x,z)<180)continue;const s=.6+Math.random()*1.2;const t1=new THREE.Mesh(new THREE.CylinderGeometry(.32,.55,4.8,6),new THREE.MeshLambertMaterial({color:0x5f3a13}));t1.position.set(x,h+2.2*s,z);t1.scale.setScalar(s);t1.castShadow=true;world.add(t1);const c1=new THREE.Mesh(new THREE.ConeGeometry(4.5*s,6.4*s,7),new THREE.MeshLambertMaterial({color:Math.random()>.5?0x28561c:0x215118}));c1.position.set(x,h+6*s,z);c1.castShadow=true;world.add(c1)}
+
+// clouds
+const cloudG=new THREE.Group();scene.add(cloudG);{
+  const cv=document.createElement('canvas');cv.width=cv.height=256;const cx=cv.getContext('2d');const g=cx.createRadialGradient(128,128,8,128,128,128);g.addColorStop(0,'rgba(255,255,255,.93)');g.addColorStop(.55,'rgba(235,242,255,.46)');g.addColorStop(1,'rgba(220,230,255,0)');cx.fillStyle=g;cx.fillRect(0,0,256,256);const tex=new THREE.CanvasTexture(cv);const mat=new THREE.MeshBasicMaterial({map:tex,transparent:true,depthWrite:false,side:THREE.DoubleSide});for(let i=0;i<80;i++){const cg=new THREE.Group();const a=Math.random()*Math.PI*2,r=700+Math.random()*2900;cg.position.set(Math.cos(a)*r,220+Math.random()*280,Math.sin(a)*r);for(let j=0;j<4+Math.floor(Math.random()*4);j++){const m=new THREE.Mesh(new THREE.PlaneGeometry(1,1),mat);const s=130+Math.random()*210;m.scale.set(s,s*.55,1);m.position.set((Math.random()-.5)*180,(Math.random()-.5)*30,(Math.random()-.5)*180);cg.add(m)}cloudG.add(cg)}}
+
+// ===== Helicopter Model =====
+const heli=new THREE.Group();scene.add(heli);
+const mats={body:new THREE.MeshLambertMaterial({color:0x2f3a2b}),dark:new THREE.MeshLambertMaterial({color:0x181f16}),metal:new THREE.MeshLambertMaterial({color:0x434343}),glass:new THREE.MeshLambertMaterial({color:0x5b95c2,transparent:true,opacity:.35}),blade:new THREE.MeshLambertMaterial({color:0x171717}),skid:new THREE.MeshLambertMaterial({color:0x4a4a4a})};
+const fusPts=[.56,-2.45,.72,-1.7,.78,-.8,.75,.2,.68,.9,.57,1.5,.35,2.08,.2,2.48,.08,2.68];const pts=[];for(let i=0;i<fusPts.length;i+=2)pts.push(new THREE.Vector2(fusPts[i],fusPts[i+1]));
+const fus=new THREE.Mesh(new THREE.LatheGeometry(pts,14),mats.body);fus.rotation.x=Math.PI/2;fus.castShadow=true;heli.add(fus);
+const belly=new THREE.Mesh(new THREE.BoxGeometry(1.35,.24,4.2),mats.body);belly.position.set(0,-.43,0);heli.add(belly);
+const nose=new THREE.Mesh(new THREE.SphereGeometry(.95,14,9,0,Math.PI*2,0,Math.PI*.55),mats.glass);nose.position.set(0,.15,2.25);heli.add(nose);
+const boom=new THREE.Mesh(new THREE.CylinderGeometry(.12,.39,7.2,10),mats.body);boom.rotation.z=Math.PI/2;boom.position.set(0,.06,-3.95);boom.castShadow=true;heli.add(boom);
+const fin=new THREE.Mesh(new THREE.BoxGeometry(.07,1.6,1.15),mats.dark);fin.position.set(0,1.03,-7.1);heli.add(fin);
+const hstab=new THREE.Mesh(new THREE.BoxGeometry(3.2,.07,.84),mats.dark);hstab.position.set(0,.04,-6.9);heli.add(hstab);
+const eng=new THREE.Mesh(new THREE.BoxGeometry(.9,.53,1.55),mats.metal);eng.position.set(0,.93,.1);heli.add(eng);
+const mast=new THREE.Mesh(new THREE.CylinderGeometry(.07,.09,.7,8),mats.metal);mast.position.set(0,.95,.1);heli.add(mast);
+const hub=new THREE.Mesh(new THREE.CylinderGeometry(.2,.2,.5,9),mats.metal);hub.position.set(0,1.3,.1);heli.add(hub);
+const rotorG=new THREE.Group();rotorG.position.set(0,1.56,.1);heli.add(rotorG);
+for(let i=0;i<4;i++){const blade=new THREE.Mesh(new THREE.BoxGeometry(6.3,.05,.22),mats.blade);blade.position.set(Math.sin(i*Math.PI/2)*3.1,0,Math.cos(i*Math.PI/2)*3.1);blade.rotation.y=i*Math.PI/2;rotorG.add(blade)}
+const rotorBlur=new THREE.Mesh(new THREE.CircleGeometry(6.2,36),new THREE.MeshBasicMaterial({color:0x303030,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false}));rotorBlur.rotation.x=-Math.PI/2;rotorBlur.position.y=0.02;rotorG.add(rotorBlur);
+const tailRot=new THREE.Group();tailRot.position.set(-.23,.56,-7.02);heli.add(tailRot);tailRot.add(new THREE.Mesh(new THREE.CylinderGeometry(.07,.07,.13,8),mats.metal));
+for(let i=0;i<2;i++){const b=new THREE.Mesh(new THREE.BoxGeometry(.04,1.26,.17),mats.blade);b.rotation.x=i*Math.PI/2;tailRot.add(b)}
+for(const sx of[-.9,.9]){const sk=new THREE.Mesh(new THREE.CylinderGeometry(.055,.055,5.1,8),mats.skid);sk.rotation.z=Math.PI/2;sk.position.set(sx,-.95,.09);heli.add(sk);for(const [sz,sy] of [[-1.3,-.35],[.95,-.35]]){const st=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,1.1,7),mats.skid);st.position.set(sx*.5,sy,sz);st.rotation.z=sx>0?-.22:.22;heli.add(st)}}
+const lightL=new THREE.PointLight(0xff2a2a,.8,12),lightR=new THREE.PointLight(0xffffff,.8,12);lightL.position.set(-1.15,0,0);lightR.position.set(1.15,0,0);heli.add(lightL);heli.add(lightR);
+const spot=new THREE.SpotLight(0xfff8db,4.5,95,Math.PI/12,.35,1.9);spot.position.set(0,-.9,1.5);spot.target.position.set(0,-20,0);heli.add(spot);heli.add(spot.target);
+
+// dust / speed streak
+const dustGeo=new THREE.BufferGeometry(),DCOUNT=450,dPos=new Float32Array(DCOUNT*3),dLife=new Float32Array(DCOUNT),dVel=Array.from({length:DCOUNT},()=>new THREE.Vector3());dustGeo.setAttribute('position',new THREE.BufferAttribute(dPos,3));
+const dustMat=new THREE.PointsMaterial({size:2,color:0xcfbf7a,transparent:true,opacity:0,depthWrite:false});const dust=new THREE.Points(dustGeo,dustMat);scene.add(dust);
+const streakGeo=new THREE.BufferGeometry(),SCNT=340,sPos=new Float32Array(SCNT*3);streakGeo.setAttribute('position',new THREE.BufferAttribute(sPos,3));const streakMat=new THREE.PointsMaterial({size:1.6,color:0xd6f3ff,transparent:true,opacity:0,depthWrite:false});const streak=new THREE.Points(streakGeo,streakMat);scene.add(streak);
+
+// ===== Audio Engine =====
+function initAudio(){if(state.audio.ready||!state.audio.enabled)return;const ctx=new (window.AudioContext||window.webkitAudioContext)();const master=ctx.createGain();master.gain.value=.14;master.connect(ctx.destination);const rotor=ctx.createOscillator(),rotorG=ctx.createGain();rotor.type='sawtooth';rotor.frequency.value=24;rotorG.gain.value=0;rotor.connect(rotorG).connect(master);rotor.start();const chop=ctx.createOscillator(),chopG=ctx.createGain();chop.type='square';chop.frequency.value=7;chopG.gain.value=0;chop.connect(chopG).connect(master);chop.start();const wind=ctx.createBiquadFilter();wind.type='highpass';wind.frequency.value=500;const noise=ctx.createBufferSource();const b=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate);const data=b.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=(Math.random()*2-1)*0.65;noise.buffer=b;noise.loop=true;const windG=ctx.createGain();windG.gain.value=0;noise.connect(wind).connect(windG).connect(master);noise.start();const warn=ctx.createOscillator(),warnG=ctx.createGain();warn.frequency.value=880;warn.type='triangle';warnG.gain.value=0;warn.connect(warnG).connect(master);warn.start();state.audio={ctx,master,ready:true,enabled:true,nodes:{rotor,rotorG,chop,chopG,windG,warn,warnG}}}
+function audioUpdate(){if(!state.audio.ready)return;const n=state.audio.nodes,h=state.heli,spd=h.vel.length();n.rotor.frequency.value=20+h.rpm*72;n.rotorG.gain.value=.02+h.rpm*.12;n.chop.frequency.value=4+h.rpm*34;n.chopG.gain.value=.01+h.torque*.05; n.windG.gain.value=Math.min(.15,spd*.0018); const warnOn=(h.vrs>.35||h.damage>.6||state.crash)&&!state.paused;n.warnG.gain.value=warnOn?(Math.sin(performance.now()*0.01)>0?.08:0):0;}
+function impactSound(power=.6){if(!state.audio.ready)return;const c=state.audio.ctx,o=c.createOscillator(),g=c.createGain();o.type='square';o.frequency.value=90+Math.random()*120;g.gain.value=.13*power;o.connect(g).connect(state.audio.master);o.start();o.stop(c.currentTime+.11)}
+
+// ===== Input =====
+const keys=state.input.keys;
+document.addEventListener('keydown',e=>{const k=e.key.toLowerCase();keys[k]=true;if(k==='c')cycleCam();if(k==='p')togglePause();if(k==='r')resetFlight();if(k==='f')toggleFullscreen();if(k==='1')setAssist('arcade');if(k==='2')setAssist('realistic');if(k==='3')setAssist('hover')});
+document.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+document.addEventListener('mousemove',e=>{if(state.pointerLocked&&!state.paused){state.input.mx+=e.movementX;state.input.my+=e.movementY;}});
+document.addEventListener('wheel',e=>{if(!state.running)return;e.preventDefault();state.input.scroll=Math.max(0,Math.min(1,state.input.scroll-Math.max(-30,Math.min(30,e.deltaY))*0.0013));},{passive:false});
+document.addEventListener('pointerlockchange',()=>{state.pointerLocked=document.pointerLockElement===renderer.domElement});
+renderer.domElement.addEventListener('click',()=>{if(state.running&&!state.paused){renderer.domElement.requestPointerLock();initAudio();if(document.getElementById('audioSel').value==='on'&&state.audio.ctx?.state==='suspended')state.audio.ctx.resume()}});
+function toggleFullscreen(){if(!document.fullscreenElement)document.documentElement.requestFullscreen?.();else document.exitFullscreen?.()}
+
+// ===== Missions =====
+function clearMissionVisuals(){state.scenario.targets.forEach(t=>world.remove(t.mesh));state.scenario.targets=[];state.scenario.index=0;state.scenario.score=0;state.scenario.failed=false;state.scenario.msg='';state.scenario.timer=0;for(const c of checkpoints)c.visible=false}
+function setupMode(mode){state.mode=mode;state.missionDone=false;state.missionTime=0;clearMissionVisuals();ui.modeTxt.textContent='MODE '+CONFIG.modes.find(m=>m.id===mode).name.toUpperCase();
+  const s=state.scenario;
+  if(mode==='hover'){s.startPos.set(0,24,0)}
+  if(mode==='landing'){s.startPos.set(420,80,-320);s.targets=[{type:'pad',x:520,z:-280,r:18}]}
+  if(mode==='checkpoint'){s.startPos.set(-1100,120,-800);const pts=[[-960,130,-640],[-720,145,-490],[-410,120,-300],[-120,90,-140],[180,95,40],[400,120,190],[670,105,330],[910,95,510]];pts.forEach((p,i)=>{const mesh=addCheckpoint(p[0],p[1],p[2],15,0x8ef3ff);s.targets.push({mesh,x:p[0],y:p[1],z:p[2],r:24,idx:i})})}
+  if(mode==='lowrun'){s.startPos.set(-950,90,430);const pts=[[-760,72,390],[-520,66,360],[-260,63,330],[-10,58,280],[220,52,200],[450,54,100],[690,58,-20],[900,70,-180]];pts.forEach(p=>{const mesh=addCheckpoint(p[0],p[1],p[2],14,0xffcc55);s.targets.push({mesh,x:p[0],y:p[1],z:p[2],r:22})})}
+  if(mode==='emergency'){s.startPos.set(720,260,730);s.timer=0}
+  if(mode==='free'){s.startPos.set(0,36,0)}
+  resetFlight(true);
+}
+
+function missionUpdate(dt){const h=state.heli, s=state.scenario;state.missionTime+=dt;const agl=h.pos.y-terrainHeight(h.pos.x,h.pos.z);if(state.mode==='hover'&&!state.crash){const d=Math.hypot(h.pos.x,h.pos.z);if(d<14&&agl>4&&agl<12&&Math.abs(h.vel.y)<2.2&&Math.abs(h.roll)<0.18&&Math.abs(h.pitch)<0.18)s.score+=dt;else s.score=Math.max(0,s.score-dt*0.5);if(s.score>35){finishMission('Hover stable. Training complete.')}}
+if(state.mode==='landing'&&!state.crash){if(s.targets.length){const t=s.targets[0];const d=Math.hypot(h.pos.x-t.x,h.pos.z-t.z);if(d<t.r+2&&h.onGround&&h.vel.length()<2&&Math.abs(h.roll)<0.2&&Math.abs(h.pitch)<0.2&&h.vel.y>-2.4){finishMission('Precision touchdown confirmed.')}}}
+if((state.mode==='checkpoint'||state.mode==='lowrun')&&!state.crash){const idx=s.index;if(idx<s.targets.length){const t=s.targets[idx];const d=Math.hypot(h.pos.x-t.x,h.pos.y-t.y,h.pos.z-t.z);if(d<t.r){t.mesh.visible=false;s.index++;impactSound(.25)}if(state.mode==='lowrun'&&agl>35)failMission('Low run violated altitude limit.')}
+if(s.index>=s.targets.length)finishMission('Route complete. Excellent flying.');if(state.mode==='checkpoint'&&state.missionTime>220)failMission('Checkpoint timer expired.')}
+if(state.mode==='emergency'&&!state.crash){if(state.missionTime>8&&h.engineHealth>.45)h.engineHealth-=dt*0.06;if(h.onGround&&h.vel.length()<5&&h.vel.y>-4&&agl<2.2)finishMission('Emergency landing survived.');if(h.onGround&&h.vel.y<-6)failMission('Emergency landing failed.')}
+}
+function finishMission(msg){if(state.missionDone)return;state.missionDone=true;state.scenario.msg='✅ '+msg}
+function failMission(msg){if(state.scenario.failed||state.missionDone)return;state.scenario.failed=true;state.scenario.msg='❌ '+msg}
+
+// ===== Flight model =====
+const quat=new THREE.Quaternion();const eul=new THREE.Euler(0,0,0,'YXZ');
+function updateFlight(dt){const h=state.heli;const assist=CONFIG.assists[state.assist];if(state.crash){h.rpm=Math.max(0,h.rpm-dt*.25);h.collective=Math.max(0,h.collective-dt*.3);h.vel.multiplyScalar(0.995);state.crashTimer+=dt;if(state.crashTimer>0.4)state.view.targetShake=Math.min(1,state.view.targetShake+dt*1.8);return}
+// controls
+if(keys['q'])state.input.pedal=Math.max(-1,state.input.pedal-dt*3.8);else if(keys['e'])state.input.pedal=Math.min(1,state.input.pedal+dt*3.8);else state.input.pedal*=Math.max(0,1-dt*5.5);
+const sens=0.0018;const targetPitch=Math.max(-.62,Math.min(.62,-state.input.my*sens)); // mouse up => nose down
+const targetRoll =Math.max(-.72,Math.min(.72, state.input.mx*sens));
+state.input.mx*=Math.max(0,1-dt*10);state.input.my*=Math.max(0,1-dt*10);
+h.targetCollective=state.input.scroll;h.collective+=(h.targetCollective-h.collective)*Math.min(1,dt*3.8);
+const spoolTarget=(.16+h.collective*.84)*h.engineHealth;h.rpm+=(spoolTarget-h.rpm)*Math.min(1,dt*1.7);
+const ground=terrainHeight(h.pos.x,h.pos.z),agl=h.pos.y-ground;
+
+const hoverShake=(1-assist.hover)*(agl<20?1-agl/20:0.18);const turb=(Math.sin(state.elapsed*2.2)+Math.sin(state.elapsed*.93)*.4)*0.02*hoverShake;
+const bankResponse=1.45,pitchResponse=1.35,yawResponse=1.52;
+h.pRate+=((targetPitch+turb)-h.pitch)*pitchResponse*dt*4.2-h.pRate*dt*(3.9+assist.stab*2.2);
+h.rRate+=((targetRoll -turb)-h.roll )*bankResponse*dt*4.2-h.rRate*dt*(3.6+assist.stab*2.0);
+h.yRate+=(state.input.pedal*yawResponse-h.yRate*(2.8+assist.yawDamp*1.9))*dt*4.1;
+
+// torque and tail authority loss under stress
+const stress=Math.max(0,Math.abs(h.vel.y)-7)*0.03+Math.max(0,Math.abs(h.roll)-0.55)*1.2+Math.max(0,h.collective-.86)*.8;h.stress=stress;
+h.tailLoss=Math.min(1,Math.max(0,stress*assist.tailLoss));
+h.yRate-=h.rpm*(0.16+0.18*h.collective)*(1+.65*h.tailLoss)*dt;
+
+h.pitch+=h.pRate*dt;h.roll+=h.rRate*dt;h.yaw+=h.yRate*dt;
+h.pitch=Math.max(-.8,Math.min(.8,h.pitch));h.roll=Math.max(-1.0,Math.min(1.0,h.roll));
+eul.set(h.pitch,h.yaw,h.roll);quat.setFromEuler(eul);
+
+const MASS=2400,G=9.81;
+const up=new THREE.Vector3(0,1,0).applyQuaternion(quat);
+const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(quat);
+const right=new THREE.Vector3(1,0,0).applyQuaternion(quat);
+const fwdSpd=h.vel.dot(fwd),sideSpd=h.vel.dot(right),spd=h.vel.length();
+
+const translationalLift=1+Math.min(.26,Math.max(0,fwdSpd)*0.009);
+const groundEffect=(agl>0&&agl<15)?(1-agl/15)*0.42:0;
+const inducedDrag=Math.max(0,(h.collective*1.2-(Math.abs(fwdSpd)*0.01)))*Math.max(0,1-agl/80)*0.9;
+const liftPenalty=Math.max(0,Math.abs(h.pitch)-0.62)*0.45 + Math.max(0,Math.abs(h.roll)-0.7)*0.5;
+
+// vortex ring approximation: descending under power with low forward speed
+const vrsCond=(agl<120 && h.vel.y<-7 && h.collective>.42 && Math.abs(fwdSpd)<20);
+if(vrsCond)h.vrs=Math.min(1,h.vrs+dt*.55*assist.vrs); else h.vrs=Math.max(0,h.vrs-dt*.35);
+const vrsPenalty=h.vrs*0.55;
+
+const thrustMag = MASS*G*1.86*h.collective*h.rpm*translationalLift*(1+groundEffect)*(1-vrsPenalty)*(1-liftPenalty);
+const thrust=up.clone().multiplyScalar(thrustMag/MASS);
+const gravity=new THREE.Vector3(0,-G,0);
+const drag=h.vel.clone().multiplyScalar(-0.014*spd);
+const sideDrag=right.clone().multiplyScalar(-sideSpd*0.12);
+const antiDrift=fwd.clone().multiplyScalar(-Math.sign(fwdSpd)*inducedDrag*0.4);
+const hoverAssist=(assist.hover>0.5&&agl<20)?h.vel.clone().setY(0).multiplyScalar(-assist.hover*0.035):new THREE.Vector3();
+
+h.acc.copy(gravity).add(thrust).add(drag).add(sideDrag).add(antiDrift).add(hoverAssist);
+if(state.mode==='emergency'&&state.missionTime>8&&h.engineHealth<.85){h.acc.y-=Math.max(0,.8-h.collective)*1.6}
+h.vel.addScaledVector(h.acc,dt);if(h.vel.length()>115)h.vel.setLength(115);h.pos.addScaledVector(h.vel,dt);
+
+h.torque=Math.min(1,h.collective*(.6+Math.abs(h.vel.y)*.05)+h.stress*.3);h.damage=Math.min(1,h.damage+Math.max(0,stress-.8)*dt*0.06);
+
+// ground collision / landing / crash
+const skidY=Math.max(-2,ground)+1.1;h.onGround=false;
+if(h.pos.y<skidY){
+  const impact=Math.abs(h.vel.y)+h.vel.length()*0.08+Math.abs(h.roll)*6+Math.abs(h.pitch)*5;
+  h.pos.y=skidY;
+  if(impact<3.4){h.vel.y=0;h.vel.x*=0.82;h.vel.z*=0.82;h.pitch*=.92;h.roll*=.92;h.onGround=true;}
+  else if(impact<7.5){h.vel.y=Math.max(1.2,Math.abs(h.vel.y)*0.2);h.vel.x*=.75;h.vel.z*=.75;h.pRate*=.4;h.rRate*=.4;state.touchdownShake=.4;impactSound(.5);h.damage=Math.min(1,h.damage+.08);h.onGround=true;}
+  else{
+    h.vel.y=Math.abs(h.vel.y)*0.15;h.vel.x*=.55;h.vel.z*=.55;h.damage=Math.min(1,h.damage+.23);state.touchdownShake=1;impactSound(.95);
+    if(impact>10||Math.abs(h.roll)>0.62||Math.abs(h.pitch)>0.58)triggerCrash('AIRFRAME FAILURE');
+    else h.onGround=true;
+  }
+  if(Math.abs(h.roll)>0.7&&h.vel.length()>5)triggerCrash('ROLLOVER');
+}
+
+// obstacle collision
+for(const o of obstacles){const d=Math.hypot(h.pos.x-o.x,h.pos.y-o.y,h.pos.z-o.z);if(d<o.r+1.5){triggerCrash('OBSTACLE IMPACT');break;}}
+
+h.damage=Math.max(0,h.damage-dt*0.0025);
+}
+
+function triggerCrash(reason='CRASH'){if(state.crash)return;state.crash=true;state.crashTimer=0;state.scenario.msg='❌ '+reason+' - PRESS R TO RESET';state.heli.engineHealth=.2;impactSound(1)}
+function resetFlight(useScenarioStart=false){const h=state.heli;const s=state.scenario.startPos;h.pos.copy(useScenarioStart?s:new THREE.Vector3(0,36,0));h.vel.set(0,0,0);h.acc.set(0,0,0);h.pitch=h.roll=h.yaw=0;h.pRate=h.rRate=h.yRate=0;h.collective=.1;h.targetCollective=.1;h.rpm=.05;h.engineHealth=1;h.damage=0;h.stress=0;h.vrs=0;h.tailLoss=0;state.input.scroll=.18;state.input.mx=state.input.my=0;state.input.pedal=0;state.crash=false;state.crashTimer=0;state.touchdownShake=0;state.view.targetShake=0}
+
+// ===== Camera =====
+const camState={pos:new THREE.Vector3(0,8,18),look:new THREE.Vector3(),vel:new THREE.Vector3()};
+function cycleCam(){state.camMode=(state.camMode+1)%state.camModes.length;ui.camTag.textContent='CAM '+state.camModes[state.camMode];ui.hud.classList.toggle('cockpit',state.camModes[state.camMode]==='COCKPIT')}
+function cameraUpdate(dt){const h=state.heli;const q=heli.quaternion;const speed=h.vel.length();const rotorShake=(Math.random()-.5)*h.rpm*.06;const lowShake=(h.pos.y-terrainHeight(h.pos.x,h.pos.z)<28)?(Math.random()-.5)*0.06:0;state.view.targetShake=Math.max(0,state.view.targetShake-dt*1.8);const crashShake=(Math.random()-.5)*state.view.targetShake*.9;const shake=rotorShake+lowShake+crashShake+state.touchdownShake*0.2;state.touchdownShake=Math.max(0,state.touchdownShake-dt*1.7);
+  let off,lookOff;
+  if(state.camMode===0){off=new THREE.Vector3(0,3.6,16+Math.min(8,speed*.1));lookOff=new THREE.Vector3(0,.4,-14)}
+  else if(state.camMode===1){off=new THREE.Vector3(0,2.4,8.5+Math.min(5,speed*.05));lookOff=new THREE.Vector3(0,.2,-20)}
+  else if(state.camMode===2){off=new THREE.Vector3(0,.92,2.02);lookOff=new THREE.Vector3(0,.72,-70)}
+  else {state.view.cinT+=dt*.42;off=new THREE.Vector3(Math.sin(state.view.cinT)*12,5.5+Math.sin(state.view.cinT*1.8)*2,10+Math.cos(state.view.cinT)*8);lookOff=new THREE.Vector3(0,1.2,-8)}
+  const dest=h.pos.clone().add(off.applyQuaternion(q));const look=h.pos.clone().add(lookOff.applyQuaternion(q));dest.x+=shake;dest.y+=shake*0.45;camState.pos.lerp(dest,.1);camState.look.lerp(look,.12);camera.position.copy(camState.pos);camera.lookAt(camState.look);
+}
+
+// ===== HUD Drawing =====
+(function buildHeading(){let html='';const dirs=['N','','NE','','E','','SE','','S','','SW','','W','','NW',''];for(let h=0;h<720;h+=5){const d=h%360,idx=Math.round(d/22.5)%16,maj=d%90===0,min=d%45===0,lbl=dirs[idx]||(d%10===0?d:'');html+=`<span style="display:inline-block;min-width:${maj?'auto':'16px'};padding:0 ${maj?5:0}px;opacity:${maj?1:min?.58:.3};font-size:${maj?10:8}px">${lbl}</span>`}ui.headingInner.innerHTML=html})();
+const adi=document.getElementById('adi').getContext('2d');
+const gColl=document.getElementById('gColl').getContext('2d');const gRpm=document.getElementById('gRpm').getContext('2d');const gLoad=document.getElementById('gLoad').getContext('2d');
+function drawADI(pitch,roll){const w=124,h=124,cx=62,cy=62,r=55;adi.clearRect(0,0,w,h);adi.save();adi.beginPath();adi.arc(cx,cy,r,0,Math.PI*2);adi.clip();adi.translate(cx,cy);adi.rotate(-roll);const pp=pitch*r*1.8;adi.fillStyle='#225b9f';adi.fillRect(-r*2,-r*2-pp,r*4,r*2+pp);const gg=adi.createLinearGradient(0,-pp,0,-pp+r);gg.addColorStop(0,'#76522a');gg.addColorStop(1,'#432b12');adi.fillStyle=gg;adi.fillRect(-r*2,-pp,r*4,r*2);adi.strokeStyle='rgba(255,255,255,.9)';adi.lineWidth=2;adi.beginPath();adi.moveTo(-r*2,-pp);adi.lineTo(r*2,-pp);adi.stroke();adi.restore();adi.strokeStyle='rgba(180,255,200,.45)';adi.lineWidth=1.4;adi.beginPath();adi.arc(cx,cy,r,0,Math.PI*2);adi.stroke();adi.strokeStyle='#ffee55';adi.lineWidth=2;adi.beginPath();adi.moveTo(cx-18,cy);adi.lineTo(cx-5,cy);adi.moveTo(cx+5,cy);adi.lineTo(cx+18,cy);adi.stroke()}
+function drawGauge(ctx,val,col,label){const w=74,h=74,cx=37,cy=37,r=28,sa=Math.PI*.75,ea=Math.PI*2.25;ctx.clearRect(0,0,w,h);ctx.beginPath();ctx.arc(cx,cy,r,sa,ea);ctx.strokeStyle='rgba(130,220,180,.16)';ctx.lineWidth=6;ctx.stroke();const t=Math.max(0,Math.min(1,val));ctx.beginPath();ctx.arc(cx,cy,r,sa,sa+(ea-sa)*t);ctx.strokeStyle=col;ctx.lineWidth=6;ctx.lineCap='round';ctx.stroke();ctx.lineCap='butt';ctx.fillStyle='rgba(180,255,210,.8)';ctx.font='bold 10px Consolas';ctx.textAlign='center';ctx.fillText(label,cx,14);ctx.fillStyle='#fff';ctx.font='bold 11px Consolas';ctx.fillText(Math.round(val*100),cx,52)}
+function hudUpdate(){const h=state.heli;const agl=Math.max(0,h.pos.y-terrainHeight(h.pos.x,h.pos.z));const spd=h.vel.length()*1.9438;const hdg=(((-h.yaw*57.2958)%360)+360)%360;const mode=CONFIG.modes.find(m=>m.id===state.mode);
+ui.spd.textContent=spd.toFixed(0);ui.alt.textContent=h.pos.y.toFixed(0);ui.agl.textContent=agl.toFixed(0);ui.vs.textContent=(h.vel.y>=0?'+':'')+h.vel.y.toFixed(1);ui.att.textContent=`${(h.roll*57.3).toFixed(0)}° / ${(h.pitch*57.3).toFixed(0)}°`;ui.eng.textContent=`${Math.round(h.torque*100)}% / ${Math.round(h.rpm*100)}%`;ui.hdgTxt.textContent='HDG '+hdg.toFixed(0).padStart(3,'0')+'°';ui.timerTxt.textContent=new Date(state.missionTime*1000).toISOString().substr(14,5);
+ui.assistTag.textContent='ASSIST '+state.assist.toUpperCase();
+ui.scenario.innerHTML=`<span class="tag">${mode.name}</span>${mode.goal}<br><strong>${state.scenario.msg||'Status: Active'}</strong> ${state.mode==='checkpoint'||state.mode==='lowrun'?`<br>Progress: ${state.scenario.index}/${state.scenario.targets.length}`:''} ${state.mode==='hover'?`<br>Hover hold: ${state.scenario.score.toFixed(1)} / 35s`:''}`;
+const warnings=[];if(agl<28&&h.vel.y<-4)warnings.push('TERRAIN');if(Math.abs(h.roll)>0.72)warnings.push('OVERBANK');if(spd>140)warnings.push('OVERSPEED');if(h.vrs>.34)warnings.push('VORTEX RING');if(h.damage>.62)warnings.push('DAMAGE');if(state.crash)warnings.push('CRASH');ui.warning.style.opacity=warnings.length?1:0;ui.warning.innerHTML=warnings.join('<br>');
+const stripW=560,off=-(hdg/360)*(stripW*12)+stripW/2;ui.headingInner.style.left=off+'px';
+drawADI(h.pitch,h.roll);drawGauge(gColl,h.collective,'#b7ffd0','COL');drawGauge(gRpm,h.rpm,'#8edfff','RPM');drawGauge(gLoad,Math.min(1,h.torque),'#ffb270','LOAD');
+}
+
+// ===== Main loop =====
+let last=performance.now();
+function loop(){requestAnimationFrame(loop);const now=performance.now();const dt=Math.min(.04,(now-last)/1000);last=now;if(!state.running||state.paused)return;state.elapsed+=dt;updateFlight(dt);missionUpdate(dt);audioUpdate();
+  // visuals
+  heli.position.copy(state.heli.pos);heli.quaternion.setFromEuler(new THREE.Euler(state.heli.pitch,state.heli.yaw,state.heli.roll,'YXZ'));
+  const rps=state.heli.rpm*10.6;rotorG.rotation.y+=rps*dt*Math.PI*2;tailRot.rotation.z+=rps*5.2*dt*Math.PI*2;rotorBlur.material.opacity=Math.max(0,(state.heli.rpm-.3)*1.3);
+  spot.intensity=(state.heli.pos.y-terrainHeight(state.heli.pos.x,state.heli.pos.z)<52)?4.2:0;
+  const blink=Math.sin(now*.0038)>0;lightL.intensity=blink?.95:0;lightR.intensity=.6;
+  const agl=state.heli.pos.y-terrainHeight(state.heli.pos.x,state.heli.pos.z);
+  // dust
+  const da=dustGeo.attributes.position.array,active=agl<20&&state.heli.rpm>.24;for(let i=0;i<DCOUNT;i++){dLife[i]-=dt;if(dLife[i]<=0){if(active){const a=Math.random()*Math.PI*2,r=Math.random()*7;da[i*3]=state.heli.pos.x+Math.cos(a)*r;da[i*3+1]=terrainHeight(state.heli.pos.x,state.heli.pos.z)+.4;da[i*3+2]=state.heli.pos.z+Math.sin(a)*r;dVel[i].set((Math.random()-.5)*6*state.heli.rpm,Math.random()*2.8*state.heli.rpm,(Math.random()-.5)*6*state.heli.rpm);dLife[i]=1.2+Math.random()*1.6}}else{da[i*3]+=dVel[i].x*dt;da[i*3+1]+=dVel[i].y*dt;da[i*3+2]+=dVel[i].z*dt;dVel[i].y-=.42*dt}}dustGeo.attributes.position.needsUpdate=true;dustMat.opacity=active?.42:Math.max(0,dustMat.opacity-dt*.8);
+  // speed streak
+  const sa=streakGeo.attributes.position.array;const spd=state.heli.vel.length();const streakOn=spd>35&&agl<90;for(let i=0;i<SCNT;i++){if(streakOn){const p=i*3;sa[p]=camera.position.x+(Math.random()-.5)*18;sa[p+1]=camera.position.y+(Math.random()-.5)*10;sa[p+2]=camera.position.z-Math.random()*40;} }streakGeo.attributes.position.needsUpdate=true;streakMat.opacity=streakOn?Math.min(.28,(spd-35)*0.004):0;
+  // clouds face camera
+  cloudG.children.forEach(c=>c.children.forEach(m=>m.lookAt(camera.position)));
+  sun.position.set(state.heli.pos.x+600,state.heli.pos.y+900,state.heli.pos.z+220);sun.target.position.copy(state.heli.pos);sun.target.updateMatrixWorld();
+  cameraUpdate(dt);hudUpdate();renderer.render(scene,camera);
+}
+loop();
+
+// ===== UI wiring =====
+function setAssist(id){state.assist=id;ui.assistTag.textContent='ASSIST '+id.toUpperCase()}
+function togglePause(){if(!state.running)return;state.paused=!state.paused;ui.pause.classList.toggle('show',state.paused);if(state.paused)document.exitPointerLock?.();else renderer.domElement.requestPointerLock();}
+const modeButtons=document.getElementById('modeButtons');CONFIG.modes.forEach((m,i)=>{const b=document.createElement('button');b.textContent=m.name;b.onclick=()=>{setupMode(m.id);[...modeButtons.children].forEach(n=>n.style.borderColor='rgba(126,255,180,.35)');b.style.borderColor='#8ef3ff'};if(i===0)b.style.borderColor='#8ef3ff';modeButtons.appendChild(b)});
+const assistButtons=document.getElementById('assistButtons');['arcade','realistic','hover'].forEach((a,i)=>{const b=document.createElement('button');b.textContent=a.toUpperCase();b.onclick=()=>{setAssist(a);[...assistButtons.children].forEach(n=>n.style.borderColor='rgba(126,255,180,.35)');b.style.borderColor='#8ef3ff'};if(i===0)b.style.borderColor='#8ef3ff';assistButtons.appendChild(b)});
+setupMode('free');
+
+document.getElementById('startBtn').onclick=()=>{state.running=true;state.paused=false;ui.title.style.display='none';ui.hud.classList.add('active');ui.onboard.classList.toggle('show',state.firstRun);state.firstRun=false;if(document.getElementById('audioSel').value==='off')state.audio.enabled=false;renderer.domElement.requestPointerLock();if(document.getElementById('gfxSel').value==='low'){renderer.shadowMap.enabled=false;scene.fog.density=0.00052}else if(document.getElementById('gfxSel').value==='medium'){sun.shadow.mapSize.set(1024,1024)};
+};
+document.getElementById('howBtn').onclick=()=>ui.onboard.classList.toggle('show');
+document.getElementById('resumeBtn').onclick=()=>togglePause();
+document.getElementById('resetBtn').onclick=()=>resetFlight(true);
+document.getElementById('titleBtn').onclick=()=>{state.running=false;state.paused=false;ui.pause.classList.remove('show');ui.title.style.display='flex';ui.hud.classList.remove('active');document.exitPointerLock?.();};
+
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+</script>
+</body>
+</html>
