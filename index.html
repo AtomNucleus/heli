@@ -43,9 +43,9 @@ canvas{display:block}
 #cockpitFrame:before,#cockpitFrame:after{content:"";position:absolute;top:0;bottom:0;width:15%;background:linear-gradient(90deg,rgba(0,0,0,.6),transparent)}
 #cockpitFrame:after{right:0;transform:scaleX(-1)}
 #cockpitFrame .bar{position:absolute;left:50%;transform:translateX(-50%);top:0;width:2px;height:100%;background:linear-gradient(rgba(180,255,210,.35),rgba(180,255,210,0));opacity:.5}
-.overlay{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:linear-gradient(170deg,rgba(2,7,20,.94),rgba(0,0,0,.95));color:#d8ffe7}
+.overlay{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:linear-gradient(170deg,rgba(2,7,20,.72),rgba(0,0,0,.82));color:#d8ffe7}
 .panel{width:min(920px,92vw);max-height:92vh;overflow:auto;background:rgba(4,12,12,.88);border:1px solid rgba(126,255,180,.25);box-shadow:0 0 60px rgba(0,255,140,.08);padding:24px}
-.h1{font-size:38px;letter-spacing:.3em;color:#b8ffcd;text-shadow:0 0 30px rgba(120,255,180,.34)}
+.h1{font-size:38px;letter-spacing:.3em;color:#b8ffcd;text-shadow:0 0 30px rgba(120,255,180,.34);animation:titlePulse 2.8s ease-in-out infinite}
 .sub{opacity:.68;font-size:12px;letter-spacing:.16em;margin-top:6px}
 .grid{display:grid;grid-template-columns:1.3fr 1fr;gap:18px;margin-top:22px}
 .card{border:1px solid rgba(126,255,180,.2);padding:12px;background:rgba(10,24,20,.38)}
@@ -66,11 +66,14 @@ button:hover{background:#0f3022;cursor:pointer}
 #missionIntro .card{min-width:520px;backdrop-filter:blur(6px);background:rgba(3,10,14,.62);border:1px solid rgba(140,255,210,.4);padding:20px;box-shadow:0 0 40px rgba(0,255,180,.15)}
 #missionIntro h2{font-size:24px;letter-spacing:.18em;margin-bottom:8px}
 #missionIntro p{font-size:12px;color:rgba(210,255,230,.8)}
+#flashFx{position:fixed;inset:0;z-index:60;pointer-events:none;background:#dfffe8;opacity:0;transition:opacity .35s}
+@keyframes titlePulse{0%,100%{transform:scale(1);text-shadow:0 0 28px rgba(120,255,180,.34)}50%{transform:scale(1.03);text-shadow:0 0 46px rgba(120,255,180,.58)}}
 </style>
 </head>
 <body>
 <div id="app"></div>
 <div id="rushFx"></div>
+<div id="flashFx"></div>
 
 <div id="hud">
   <div class="topBar">
@@ -164,6 +167,7 @@ const ui = {
   hud: document.getElementById('hud'), warning:document.getElementById('warning'), scenario:document.getElementById('scenario'),
   title:document.getElementById('titleScreen'), pause:document.getElementById('pauseMenu'), onboard:document.getElementById('onboard'),
   rush:document.getElementById('rushFx'), boot:document.getElementById('bootSequence'), bootTxt:document.getElementById('bootTxt'),
+  flash:document.getElementById('flashFx'),
   missionIntro:document.getElementById('missionIntro'), introTitle:document.getElementById('introTitle'), introBody:document.getElementById('introBody'),
   modeTxt:document.getElementById('modeTxt'), timerTxt:document.getElementById('timerTxt'), hdgTxt:document.getElementById('hdgTxt'),
   spd:document.getElementById('spdVal'), alt:document.getElementById('altVal'), agl:document.getElementById('aglVal'), vs:document.getElementById('vsVal'),
@@ -186,6 +190,7 @@ const CONFIG={
 const state={
   running:false, paused:false, pointerLocked:false, firstRun:true,
   booting:false, bootTimer:0, introTimer:0,
+  attractT:0, takeoffBurstDone:false,
   assist:'arcade', mode:'free', elapsed:0, missionTime:0, missionDone:false,
   spawnProtection:0, startupPhase:'READY',
   camMode:0, camModes:['CHASE','PURSUIT','COCKPIT','CINEMATIC'],
@@ -237,7 +242,7 @@ const water=new THREE.Mesh(new THREE.PlaneGeometry(TS,TS),new THREE.MeshLambertM
 const world=new THREE.Group();scene.add(world);const pads=[],obstacles=[],checkpoints=[];
 function addPad(x,z,r=18){const g=new THREE.CylinderGeometry(r,r,1.4,24);const m=new THREE.MeshLambertMaterial({color:0x2d3435});const p=new THREE.Mesh(g,m);p.position.set(x,terrainHeight(x,z)+.7,z);p.receiveShadow=true;world.add(p);const ring=new THREE.Mesh(new THREE.TorusGeometry(r*.72,.7,8,24),new THREE.MeshBasicMaterial({color:0xb6ffd0}));ring.rotation.x=-Math.PI/2;ring.position.set(x,p.position.y+.8,z);world.add(ring);pads.push({x,z,y:p.position.y+1,r});}
 function addTower(x,z,h=80){const body=new THREE.Mesh(new THREE.CylinderGeometry(1.4,2.6,h,9),new THREE.MeshLambertMaterial({color:0x545861}));body.position.set(x,terrainHeight(x,z)+h/2,z);body.castShadow=true;world.add(body);const top=new THREE.Mesh(new THREE.SphereGeometry(2.4,8,8),new THREE.MeshLambertMaterial({color:0xff3333,emissive:0x440000}));top.position.set(x,body.position.y+h/2,z);world.add(top);obstacles.push({x,z,y:body.position.y+h/2,r:4.5});}
-function addCheckpoint(x,y,z,r=16,color=0x8ef3ff){const t=new THREE.Mesh(new THREE.TorusGeometry(r,1.2,8,20),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.6}));t.position.set(x,y,z);t.rotation.y=Math.random()*Math.PI;world.add(t);checkpoints.push(t);return t}
+function addCheckpoint(x,y,z,r=16,color=0x8ef3ff){const t=new THREE.Mesh(new THREE.TorusGeometry(r,1.2,8,20),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.72}));t.position.set(x,y,z);t.rotation.y=Math.random()*Math.PI;world.add(t);const beam=new THREE.Mesh(new THREE.CylinderGeometry(r*.25,r*.5,90,12,1,true),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.16,side:THREE.DoubleSide}));beam.position.set(x,y+45,z);world.add(beam);t.userData.beam=beam;checkpoints.push(t);return t}
 function addRunwayMarkers(xStart,xEnd,z){for(let x=xStart;x<=xEnd;x+=60){const y=terrainHeight(x,z)+.12;const m=new THREE.Mesh(new THREE.BoxGeometry(20,.22,2.4),new THREE.MeshLambertMaterial({color:0xf1f1d1}));m.position.set(x,y,z);world.add(m)}}
 addPad(0,0,22);addPad(520,-280,18);addPad(-880,420,20);addPad(950,780,20);addTower(320,180,92);addTower(-460,-720,120);addTower(920,-220,84);addTower(-1020,910,130);
 addRunwayMarkers(-720,720,0);
@@ -292,7 +297,7 @@ renderer.domElement.addEventListener('click',()=>{if(state.running&&!state.pause
 function toggleFullscreen(){if(!document.fullscreenElement)document.documentElement.requestFullscreen?.();else document.exitFullscreen?.()}
 
 // ===== Missions =====
-function clearMissionVisuals(){state.scenario.targets.forEach(t=>world.remove(t.mesh));state.scenario.targets=[];state.scenario.index=0;state.scenario.score=0;state.scenario.failed=false;state.scenario.msg='';state.scenario.timer=0;for(const c of checkpoints)c.visible=false}
+function clearMissionVisuals(){state.scenario.targets.forEach(t=>{world.remove(t.mesh);if(t.mesh?.userData?.beam)world.remove(t.mesh.userData.beam);});state.scenario.targets=[];state.scenario.index=0;state.scenario.score=0;state.scenario.failed=false;state.scenario.msg='';state.scenario.timer=0;for(const c of checkpoints){c.visible=false;if(c.userData?.beam)c.userData.beam.visible=false;}}
 function showMissionIntro(){const m=CONFIG.modes.find(x=>x.id===state.mode);ui.introTitle.textContent=m.name.toUpperCase();ui.introBody.textContent=m.goal;ui.missionIntro.classList.add('show');state.introTimer=3.2;}
 function setupMode(mode){state.mode=mode;state.missionDone=false;state.missionTime=0;clearMissionVisuals();ui.modeTxt.textContent='MODE '+CONFIG.modes.find(m=>m.id===mode).name.toUpperCase();
   const s=state.scenario;
@@ -406,7 +411,7 @@ function resetFlight(useScenarioStart=false){const h=state.heli;const spawn=useS
   const groundStart = useScenarioStart ? state.scenario.groundStart : true;
   if(groundStart){h.pos.y=Math.max(h.pos.y,terrainHeight(h.pos.x,h.pos.z)+1.12);h.collective=0;h.targetCollective=0;h.rpm=.09;state.input.scroll=0;state.startupPhase='STARTUP';state.spawnProtection=3.5;h.onGround=true;state.scenario.msg='🟢 Ground start: spool up with scroll, then lift gently.';}
   else {h.pos.y=Math.max(h.pos.y,terrainHeight(h.pos.x,h.pos.z)+22);h.collective=.46;h.targetCollective=.46;h.rpm=.62;state.input.scroll=.46;state.startupPhase='AIRBORNE';state.spawnProtection=2.2;h.onGround=false;state.scenario.msg='🟢 Stable insertion established.';}
-  state.input.mx=state.input.my=0;state.input.pedal=0;state.crash=false;state.crashTimer=0;state.touchdownShake=0;state.view.targetShake=0}
+  state.input.mx=state.input.my=0;state.input.pedal=0;state.crash=false;state.crashTimer=0;state.touchdownShake=0;state.view.targetShake=0;state.takeoffBurstDone=false}
 
 // ===== Camera =====
 const camState={pos:new THREE.Vector3(0,8,18),look:new THREE.Vector3(),vel:new THREE.Vector3()};
@@ -450,7 +455,10 @@ drawADI(h.pitch,h.roll);drawGauge(gColl,h.collective,'#b7ffd0','COL');drawGauge(
 
 // ===== Main loop =====
 let last=performance.now();
-function loop(){requestAnimationFrame(loop);const now=performance.now();const dt=Math.min(.04,(now-last)/1000);last=now;if(!state.running||state.paused)return;state.elapsed+=dt;updateFlight(dt);missionUpdate(dt);audioUpdate();
+function loop(){requestAnimationFrame(loop);const now=performance.now();const dt=Math.min(.04,(now-last)/1000);last=now;
+  if(!state.running){state.attractT+=dt*.25;rotorG.rotation.y+=dt*3.6;tailRot.rotation.z+=dt*14;const a=state.attractT;camera.position.set(Math.cos(a)*22,8+Math.sin(a*1.8)*1.6,Math.sin(a)*22);camera.lookAt(new THREE.Vector3(0,2,0));renderer.render(scene,camera);return;}
+  if(state.paused)return;
+  state.elapsed+=dt;updateFlight(dt);missionUpdate(dt);audioUpdate();
   if(state.booting){state.bootTimer-=dt;ui.boot.classList.add('show');ui.bootTxt.textContent=state.bootTimer>2?'3':state.bootTimer>1?'2':state.bootTimer>0?'1':'FLY';if(state.bootTimer<=0){state.booting=false;ui.boot.classList.remove('show');}}
   if(state.introTimer>0){state.introTimer-=dt;if(state.introTimer<=0)ui.missionIntro.classList.remove('show');}
   // visuals
@@ -459,14 +467,15 @@ function loop(){requestAnimationFrame(loop);const now=performance.now();const dt
   spot.intensity=(state.heli.pos.y-terrainHeight(state.heli.pos.x,state.heli.pos.z)<52)?4.2:0;
   const blink=Math.sin(now*.0038)>0;lightL.intensity=blink?.95:0;lightR.intensity=.6;
   const agl=state.heli.pos.y-terrainHeight(state.heli.pos.x,state.heli.pos.z);
-  const rush=(state.heli.vel.length()>38&&agl<65)?Math.min(1,(state.heli.vel.length()-38)/45)*(1-agl/90):0;ui.rush.style.opacity=(rush*0.8).toFixed(2);
+  const rush=(state.heli.vel.length()>38&&agl<65)?Math.min(1,(state.heli.vel.length()-38)/45)*(1-agl/90):0;ui.rush.style.opacity=(rush*0.95).toFixed(2);
+  if(!state.takeoffBurstDone&&!state.heli.onGround&&agl>4){state.takeoffBurstDone=true;ui.flash.style.opacity='0.42';setTimeout(()=>ui.flash.style.opacity='0',130);}
   // dust
   const da=dustGeo.attributes.position.array,active=agl<20&&state.heli.rpm>.24;for(let i=0;i<DCOUNT;i++){dLife[i]-=dt;if(dLife[i]<=0){if(active){const a=Math.random()*Math.PI*2,r=Math.random()*7;da[i*3]=state.heli.pos.x+Math.cos(a)*r;da[i*3+1]=terrainHeight(state.heli.pos.x,state.heli.pos.z)+.4;da[i*3+2]=state.heli.pos.z+Math.sin(a)*r;dVel[i].set((Math.random()-.5)*6*state.heli.rpm,Math.random()*2.8*state.heli.rpm,(Math.random()-.5)*6*state.heli.rpm);dLife[i]=1.2+Math.random()*1.6}}else{da[i*3]+=dVel[i].x*dt;da[i*3+1]+=dVel[i].y*dt;da[i*3+2]+=dVel[i].z*dt;dVel[i].y-=.42*dt}}dustGeo.attributes.position.needsUpdate=true;dustMat.opacity=active?.42:Math.max(0,dustMat.opacity-dt*.8);
   // speed streak
   const sa=streakGeo.attributes.position.array;const spd=state.heli.vel.length();const streakOn=spd>30&&agl<100;for(let i=0;i<SCNT;i++){if(streakOn){const p=i*3;sa[p]=camera.position.x+(Math.random()-.5)*22;sa[p+1]=camera.position.y+(Math.random()-.5)*12;sa[p+2]=camera.position.z-Math.random()*52;} }streakGeo.attributes.position.needsUpdate=true;streakMat.opacity=streakOn?Math.min(.45,(spd-30)*0.006):0;
   // clouds face camera
   cloudG.children.forEach(c=>c.children.forEach(m=>m.lookAt(camera.position)));
-  state.scenario.targets.forEach((t,i)=>{if(t.mesh&&t.mesh.visible!==false){const p=1+Math.sin(now*0.004+i)*0.08;t.mesh.scale.setScalar(p);t.mesh.material.opacity=0.45+Math.sin(now*0.006+i)*0.2;}});
+  state.scenario.targets.forEach((t,i)=>{if(t.mesh&&t.mesh.visible!==false){const p=1+Math.sin(now*0.004+i)*0.08;t.mesh.scale.setScalar(p);t.mesh.material.opacity=0.5+Math.sin(now*0.006+i)*0.22;if(t.mesh.userData?.beam){t.mesh.userData.beam.visible=true;t.mesh.userData.beam.material.opacity=0.11+Math.sin(now*0.003+i)*0.08;}}});
   sun.position.set(state.heli.pos.x+600,state.heli.pos.y+900,state.heli.pos.z+220);sun.target.position.copy(state.heli.pos);sun.target.updateMatrixWorld();
   cameraUpdate(dt);hudUpdate();renderer.render(scene,camera);
 }
@@ -479,7 +488,7 @@ const modeButtons=document.getElementById('modeButtons');CONFIG.modes.forEach((m
 const assistButtons=document.getElementById('assistButtons');['arcade','realistic','hover'].forEach((a,i)=>{const b=document.createElement('button');b.textContent=a.toUpperCase();b.onclick=()=>{setAssist(a);[...assistButtons.children].forEach(n=>n.style.borderColor='rgba(126,255,180,.35)');b.style.borderColor='#8ef3ff'};if(i===0)b.style.borderColor='#8ef3ff';assistButtons.appendChild(b)});
 setupMode('free');
 
-document.getElementById('startBtn').onclick=()=>{state.running=true;state.paused=false;state.booting=true;state.bootTimer=3.05;ui.title.style.display='none';ui.hud.classList.add('active');ui.onboard.classList.toggle('show',state.firstRun);state.firstRun=false;showMissionIntro();if(document.getElementById('audioSel').value==='off')state.audio.enabled=false;renderer.domElement.requestPointerLock();if(document.getElementById('gfxSel').value==='low'){renderer.shadowMap.enabled=false;scene.fog.density=0.00052}else if(document.getElementById('gfxSel').value==='medium'){sun.shadow.mapSize.set(1024,1024)};
+document.getElementById('startBtn').onclick=()=>{state.running=true;state.paused=false;state.booting=true;state.bootTimer=3.05;state.takeoffBurstDone=false;ui.title.style.display='none';ui.hud.classList.add('active');ui.onboard.classList.toggle('show',state.firstRun);state.firstRun=false;showMissionIntro();if(document.getElementById('audioSel').value==='off')state.audio.enabled=false;renderer.domElement.requestPointerLock();if(document.getElementById('gfxSel').value==='low'){renderer.shadowMap.enabled=false;scene.fog.density=0.00052}else if(document.getElementById('gfxSel').value==='medium'){sun.shadow.mapSize.set(1024,1024)};
 };
 document.getElementById('howBtn').onclick=()=>ui.onboard.classList.toggle('show');
 document.getElementById('resumeBtn').onclick=()=>togglePause();
