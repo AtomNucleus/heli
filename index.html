@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Heli — Graphics + Controls Upgrade</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="hud">
+      <div class="card">
+        <h1>HELI // NEXT GEN</h1>
+        <p>Heavy visual + control upgrade prototype.</p>
+        <div class="stats">
+          <span id="fps">FPS: --</span>
+          <span id="mode">Input: Keyboard/Mouse</span>
+        </div>
+      </div>
+      <div class="card controls">
+        <h2>Controls</h2>
+        <ul>
+          <li><kbd>W / ↑</kbd> Thrust up</li>
+          <li><kbd>A / ←</kbd> Rotate left</li>
+          <li><kbd>D / →</kbd> Rotate right</li>
+          <li><kbd>Shift</kbd> Boost</li>
+          <li><kbd>Space</kbd> Brake stabilizer</li>
+          <li><kbd>R</kbd> Reset</li>
+          <li><kbd>M</kbd> Toggle motion blur</li>
+          <li><kbd>G</kbd> Toggle glow</li>
+        </ul>
+      </div>
+    </div>
+
+    <canvas id="scene" aria-label="game scene"></canvas>
+
+    <div class="touch-controls" id="touchControls">
+      <button data-action="left">⟲</button>
+      <button data-action="thrust">▲</button>
+      <button data-action="right">⟳</button>
+      <button data-action="boost">⚡</button>
+    </div>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
