@@ -15,7 +15,6 @@ export class Helicopter {
   private model?: THREE.Group;
   private placeholder?: THREE.Object3D;
   private rotorDisk?: THREE.Mesh;
-  private ghostBlades: THREE.Mesh[] = [];
   private tailDisk?: THREE.Mesh;
   private exhaust: THREE.Points;
   private wash: THREE.Points;
@@ -150,30 +149,8 @@ export class Helicopter {
     this.rotorDisk = new THREE.Mesh(new THREE.CircleGeometry(this.rotorRadius * 1.02, 48), diskMat);
     this.rotorDisk.rotation.x = -Math.PI / 2;
     this.rotorDisk.position.set(0, hubY, 0);
-    this.group.add(this.rotorDisk);
-
-    // Fast-spinning translucent ghost blades sell the motion at speed.
-    this.mainRotor.position.set(0, hubY + 0.02, 0);
-    const bladeMat = new THREE.MeshStandardMaterial({
-      color: 0x15181a,
-      metalness: 0.3,
-      roughness: 0.6,
-      transparent: true,
-      opacity: 0,
-    });
-    for (let i = 0; i < 3; i++) {
-      const blade = new THREE.Mesh(
-        new THREE.BoxGeometry(0.14, 0.02, this.rotorRadius * 0.98),
-        bladeMat,
-      );
-      const pivot = new THREE.Group();
-      pivot.rotation.y = (i * Math.PI * 2) / 3;
-      blade.position.z = -this.rotorRadius * 0.49;
-      pivot.add(blade);
-      this.mainRotor.add(pivot);
-      this.ghostBlades.push(blade);
-    }
-    this.group.add(this.mainRotor);
+    this.mainRotor.position.set(0, hubY, 0);
+    this.group.add(this.rotorDisk, this.mainRotor);
 
     // Tail rotor blur disc.
     const tailR = this.rotorRadius * 0.28;
@@ -246,23 +223,17 @@ export class Helicopter {
     const spin = rpm * rpm * 42;
     this.rotorAngle += spin * dt;
     this.tailAngle += spin * 3.2 * dt;
-    this.mainRotor.rotation.y = this.rotorAngle;
 
     if (this.rotorDisk) {
       const diskMat = this.rotorDisk.material as THREE.MeshBasicMaterial;
-      diskMat.opacity = THREE.MathUtils.clamp((rpm - 0.35) * 0.9, 0, 0.7);
-      this.rotorDisk.rotation.z = this.rotorAngle * 0.15;
+      diskMat.opacity = THREE.MathUtils.clamp((rpm - 0.3) * 0.95, 0, 0.72);
+      this.rotorDisk.rotation.z = this.rotorAngle * 0.2;
     }
     if (this.tailDisk) {
       const tMat = this.tailDisk.material as THREE.MeshBasicMaterial;
-      tMat.opacity = THREE.MathUtils.clamp((rpm - 0.4) * 0.9, 0, 0.6);
+      tMat.opacity = THREE.MathUtils.clamp((rpm - 0.35) * 0.95, 0, 0.62);
       this.tailDisk.rotation.z = this.tailAngle;
     }
-    const bladeOpacity = THREE.MathUtils.clamp(0.55 - rpm * 0.6, 0, 0.5);
-    for (const blade of this.ghostBlades) {
-      (blade.material as THREE.MeshStandardMaterial).opacity = bladeOpacity;
-    }
-    this.mainRotor.visible = rpm > 0.05;
 
     this.updateParticles(this.exhaust, this.exhaustVel, dt, 2.5, rpm > 0.3);
     const washStrength = rpm * THREE.MathUtils.clamp(1 - agl / 10, 0, 1);
