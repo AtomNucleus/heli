@@ -43,7 +43,7 @@ export class World {
     this.group.add(this.trees, this.rocks);
 
     this.grass = new Grass((x, z) => this.terrain.getHeight(x, z), 20000);
-    this.gravel = new Gravel((x, z) => this.terrain.getHeight(x, z), 9000);
+    this.gravel = new Gravel((x, z) => this.terrain.getHeight(x, z), 5500);
     this.group.add(this.grass.mesh, this.gravel.mesh);
 
     this.buildPads();

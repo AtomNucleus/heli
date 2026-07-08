@@ -23,16 +23,16 @@ export class Gravel {
   private dummy = new THREE.Object3D();
   private dirty = true;
 
-  constructor(getHeight: (x: number, z: number) => number, count = 9000) {
-    const geo = new THREE.DodecahedronGeometry(1, 0);
+  constructor(getHeight: (x: number, z: number) => number, count = 5500) {
+    // Small base geometry — instance scale keeps grains at true pebble size
+    const geo = new THREE.DodecahedronGeometry(0.1, 0);
     const mat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
-      roughness: 0.48,
-      metalness: 0.18,
+      roughness: 0.88,
+      metalness: 0.06,
       flatShading: true,
-      // Hot emissive so pale grains punch through dusk + chase distance
-      emissive: 0xc9a878,
-      emissiveIntensity: 0.55,
+      emissive: 0x4a4030,
+      emissiveIntensity: 0.1,
     });
 
     this.mesh = new THREE.InstancedMesh(geo, mat, count);
@@ -41,21 +41,21 @@ export class Gravel {
     this.mesh.frustumCulled = false;
 
     const colors = new Float32Array(count * 3);
-    // High-contrast pale / chalk / bone — must read against dark pad + green shelf
+    // Muted tan / grey / brown — readable pebbles under dusk, not neon bone or black voids
     const colorPalettes: [number, number, number][] = [
-      [1.0, 0.94, 0.72], // bone
-      [0.98, 0.92, 0.82], // chalk
-      [0.92, 0.88, 0.78], // light stone
-      [1.0, 0.86, 0.55], // bright sand
-      [0.88, 0.9, 0.92], // cool grey-white
-      [0.95, 0.78, 0.48], // warm pebble
-      [0.78, 0.74, 0.68], // mid stone (minority)
-      [1.0, 0.98, 0.9], // near-white
+      [0.62, 0.55, 0.42], // tan
+      [0.58, 0.54, 0.48], // warm grey
+      [0.5, 0.44, 0.36], // brown stone
+      [0.66, 0.58, 0.46], // light tan
+      [0.48, 0.46, 0.44], // cool grey
+      [0.56, 0.48, 0.36], // dusty brown
+      [0.6, 0.56, 0.5], // pale stone
+      [0.44, 0.4, 0.34], // dark pebble
     ];
 
-    // Dense apron just outside pad cylinder (~7m) — primary pad dominates
+    // Dense apron just outside pad cylinder
     const pads: { x: number; z: number; weight: number }[] = [
-      { x: 8, z: 5, weight: 0.86 },
+      { x: 8, z: 5, weight: 0.82 },
       { x: -55, z: 40, weight: 0.12 },
     ];
 
@@ -73,18 +73,15 @@ export class Gravel {
       if (roll < pads[0].weight) {
         const p = pads[0];
         const ang = Math.random() * Math.PI * 2;
-        // Tight bright ring hugging pad lip + dense apron 7–11.5m
-        const rad =
-          Math.random() < 0.35
-            ? 6.6 + Math.random() * 1.1 // pad lip / rim
-            : 7.1 + Math.random() * 4.4; // apron
+        // Dense pebble apron 7.2–10m from pad center
+        const rad = 7.2 + Math.random() * 2.8;
         x = p.x + Math.cos(ang) * rad;
         z = p.z + Math.sin(ang) * rad;
         nearPad = true;
       } else if (roll < pads[0].weight + pads[1].weight) {
         const p = pads[1];
         const ang = Math.random() * Math.PI * 2;
-        const rad = 6.8 + Math.random() * 3.8;
+        const rad = 7.2 + Math.random() * 2.6;
         x = p.x + Math.cos(ang) * rad;
         z = p.z + Math.sin(ang) * rad;
         nearPad = true;
@@ -107,13 +104,11 @@ export class Gravel {
       if (Math.hypot(x - 8, z - 5) < 1.8) continue;
       if (Math.hypot(x + 55, z - 40) < 1.8) continue;
 
-      // Readable pebbles 0.36–0.72 — dense apron, not boulder wall
-      const scale = 0.36 + Math.random() * 0.36;
-      const onPadDisk = Math.hypot(x - 8, z - 5) < 7.25 || Math.hypot(x + 55, z - 40) < 7.25;
-      const yLift = onPadDisk ? 0.48 : 0.28;
+      // True pebble size: base 0.1 × scale 0.15–0.34
+      const scale = 0.15 + Math.random() * 0.19;
       const grain: Grain = {
         baseX: x,
-        baseY: h + scale * 0.58 + yLift,
+        baseY: h + scale * 0.05,
         baseZ: z,
         ox: 0,
         oy: 0,
@@ -130,7 +125,7 @@ export class Gravel {
       this.writeInstance(placed, grain);
 
       const pal = colorPalettes[Math.floor(Math.random() * colorPalettes.length)];
-      const jitter = 0.95 + Math.random() * 0.18;
+      const jitter = 0.92 + Math.random() * 0.16;
       colors[placed * 3] = Math.min(1, pal[0] * jitter);
       colors[placed * 3 + 1] = Math.min(1, pal[1] * jitter);
       colors[placed * 3 + 2] = Math.min(1, pal[2] * jitter);
@@ -160,7 +155,7 @@ export class Gravel {
   ) {
     const heightFactor = THREE.MathUtils.clamp(1 - agl / 10, 0, 1);
     let wash = rpm * rpm * heightFactor;
-    // On pad / low hover with RPM: force dramatic scatter
+    // On pad / low hover with RPM: scatter pebbles outward
     if (onGround && rpm > 0.35) wash = Math.max(wash, rpm * 1.85);
     else if (agl < 2.5 && rpm > 0.45) wash = Math.max(wash, rpm * 1.55);
     else if (onGround && rpm > 0.2) wash = Math.max(wash, rpm * 1.3);

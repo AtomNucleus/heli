@@ -39,24 +39,24 @@ function makeTerrainAlbedo(kind: 'grass' | 'sand' | 'rock', size = 256): THREE.C
   let baseR: number, baseG: number, baseB: number;
   let varAmp: number;
   let nScale: number;
-  // Bright sRGB-authored bases (converted to linear by Three) so land reads under dusk
+  // sRGB-authored bases — keep readable under dusk without over-bright midtones
   if (kind === 'grass') {
-    baseR = 0.28;
-    baseG = 0.42;
-    baseB = 0.22;
-    varAmp = 0.14;
+    baseR = 0.22;
+    baseG = 0.34;
+    baseB = 0.18;
+    varAmp = 0.12;
     nScale = 10;
   } else if (kind === 'sand') {
-    baseR = 0.78;
-    baseG = 0.68;
-    baseB = 0.42;
-    varAmp = 0.16;
+    baseR = 0.62;
+    baseG = 0.54;
+    baseB = 0.36;
+    varAmp = 0.12;
     nScale = 8;
   } else {
-    baseR = 0.62;
-    baseG = 0.58;
-    baseB = 0.52;
-    varAmp = 0.2;
+    baseR = 0.48;
+    baseG = 0.44;
+    baseB = 0.4;
+    varAmp = 0.16;
     nScale = 14;
   }
 
@@ -211,11 +211,11 @@ export class Terrain {
           grassW /= sumW; sandW /= sumW; rockW /= sumW;
 
           vec4 blendedMap = grassSample * grassW + sandSample * sandW + rockSample * rockW;
-          // Wet shoreline: darker + slightly cooler; roughness handled below
-          float wet = 1.0 - smoothstep( 0.2, 2.0, vTerrainH );
-          blendedMap.rgb = mix( blendedMap.rgb, blendedMap.rgb * vec3( 0.7, 0.76, 0.8 ), wet * 0.55 );
-          // Lift midtones so land reads under dusk + ACES
-          blendedMap.rgb = blendedMap.rgb * 1.25 + 0.04;
+          // Wet shoreline: subtle darker + cooler; roughness handled below
+          float wet = 1.0 - smoothstep( 0.15, 1.8, vTerrainH );
+          blendedMap.rgb = mix( blendedMap.rgb, blendedMap.rgb * vec3( 0.65, 0.72, 0.78 ), wet * 0.45 );
+          // Mild midtone lift — avoid over-bright land under ACES
+          blendedMap.rgb = blendedMap.rgb * 1.08 + 0.015;
           diffuseColor *= blendedMap;
           `,
         )
@@ -228,8 +228,8 @@ export class Terrain {
             roughnessFactor *= texelRoughness.g;
           #endif
           // Recompute wet here — locals from map_fragment are out of scope
-          float wetShore = 1.0 - smoothstep( 0.2, 2.0, vTerrainH );
-          roughnessFactor = mix( roughnessFactor, 0.28, wetShore * 0.8 );
+          float wetShore = 1.0 - smoothstep( 0.15, 1.8, vTerrainH );
+          roughnessFactor = mix( roughnessFactor, 0.32, wetShore * 0.7 );
           `,
         );
 
@@ -237,7 +237,7 @@ export class Terrain {
     };
 
     // Bump key so broken cached programs from prior normal-blend shader are discarded
-    mat.customProgramCacheKey = () => 'heli-terrain-blend-v5-olive-pad';
+    mat.customProgramCacheKey = () => 'heli-terrain-blend-v6-rebalance';
 
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.receiveShadow = true;

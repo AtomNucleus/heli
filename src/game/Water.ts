@@ -72,8 +72,8 @@ function makeWaterNormals(size = 256): THREE.Texture {
  */
 export class Water {
   readonly mesh: THREE.Mesh;
-  /** Raised so bays / shelf edges clearly flood over terrain. */
-  readonly level = 0.85;
+  /** Original coastal level — island shelf stays dry. */
+  readonly level = 0.15;
   private waterObj: ThreeWater | null = null;
   private clock = 0;
   private fallbackUniforms: { uTime: { value: number } } | null = null;
@@ -94,40 +94,42 @@ export class Water {
         textureHeight: 512,
         waterNormals: normals,
         sunDirection: options?.sunDirection?.clone() ?? new THREE.Vector3(0.55, 0.85, 0.25).normalize(),
-        sunColor: 0xffe8c8,
-        // Deep teal — must stay readable after ACES + SwiftShader
-        waterColor: 0x1a6a78,
-        distortionScale: 3.2,
-        fog: false,
+        sunColor: 0xffd8b0,
+        // Deep teal — dark reflective coastal water
+        waterColor: 0x082830,
+        distortionScale: 2.5,
+        fog: options?.fog ?? true,
         alpha: 1.0,
       });
       water.rotation.x = -Math.PI / 2;
       water.position.y = this.level;
       const mat = water.material as THREE.ShaderMaterial;
-      if (mat.uniforms?.size) mat.uniforms.size.value = 2.0;
-      mat.depthWrite = false;
+      if (mat.uniforms?.size) mat.uniforms.size.value = 2.2;
+      if (mat.uniforms?.waterColor) mat.uniforms.waterColor.value.set(0x0a3040);
+      if (mat.uniforms?.sunColor) mat.uniforms.sunColor.value.set(0xffd8b0);
+      // Write depth so submerged shelf doesn't punch through as milky sand
+      mat.depthWrite = true;
+      mat.transparent = false;
       water.renderOrder = -1;
-      mat.transparent = true;
 
-      // Controlled reflection boost — avoid white blowout under ACES/SwiftShader
+      // Soft reflection — crush sky/terrain mirrors so body stays deep teal
       if (mat.fragmentShader) {
         mat.fragmentShader = mat.fragmentShader
           .replace(
             'vec3 reflectionSample = vec3( texture2D( mirrorSampler, mirrorCoord.xy / mirrorCoord.w + distortion ) );',
             `vec3 reflectionSample = vec3( texture2D( mirrorSampler, mirrorCoord.xy / mirrorCoord.w + distortion ) );
-             // Soft floor so empty mirror isn't black; keep below sun white
-             reflectionSample = clamp( reflectionSample, vec3( 0.05 ), vec3( 0.85 ) );
-             reflectionSample = mix( reflectionSample, waterColor * 1.4, 0.18 );`,
+             reflectionSample *= 0.28;
+             reflectionSample = mix( reflectionSample, waterColor, 0.62 );`,
           )
           .replace(
             'vec3 albedo = mix( ( sunColor * diffuseLight * 0.3 + scatter ) * getShadowMask(), ( vec3( 0.1 ) + reflectionSample * 0.9 + reflectionSample * specularLight ), reflectance);',
             `vec3 albedo = mix(
-               ( sunColor * diffuseLight * 0.35 + scatter * 1.15 ) * getShadowMask(),
-               ( waterColor * 0.35 + reflectionSample * 0.95 + specularLight * sunColor * 0.55 ),
-               clamp( reflectance * 1.15 + 0.08, 0.0, 0.92 )
+               waterColor * ( 0.7 + diffuseLight * 0.15 ),
+               ( waterColor * 0.92 + reflectionSample * 0.18 + specularLight * sunColor * 0.12 ),
+               clamp( reflectance * 0.5, 0.0, 0.55 )
              );
-             albedo = clamp( albedo, vec3( 0.04, 0.1, 0.12 ), vec3( 0.75, 0.88, 0.95 ) );
-             albedo += specularLight * sunColor * 0.22;`,
+             albedo = mix( albedo, waterColor, 0.55 );
+             albedo += specularLight * sunColor * 0.04;`,
           );
         mat.needsUpdate = true;
       }
@@ -144,19 +146,22 @@ export class Water {
     const uniforms = {
       uTime: { value: 0 },
       uDeep: { value: new THREE.Color(0x061820) },
-      uShallow: { value: new THREE.Color(0x1a6a78) },
-      uSky: { value: new THREE.Color(0x6a9ab0) },
+      uShallow: { value: new THREE.Color(0x0e4a55) },
+      uSky: { value: new THREE.Color(0x4a7088) },
     };
     this.fallbackUniforms = uniforms;
     const mat = new THREE.ShaderMaterial({
       uniforms,
       transparent: true,
       depthWrite: false,
+      fog: true,
       vertexShader: /* glsl */ `
         uniform float uTime;
         varying vec2 vUv;
         varying vec3 vWorld;
         varying vec3 vView;
+        #include <common>
+        #include <fog_pars_vertex>
         void main() {
           vUv = uv;
           vec3 p = position;
@@ -165,7 +170,9 @@ export class Water {
           vec4 world = modelMatrix * vec4(p, 1.0);
           vWorld = world.xyz;
           vView = cameraPosition - world.xyz;
-          gl_Position = projectionMatrix * viewMatrix * world;
+          vec4 mvPosition = viewMatrix * world;
+          gl_Position = projectionMatrix * mvPosition;
+          #include <fog_vertex>
         }
       `,
       fragmentShader: /* glsl */ `
@@ -176,6 +183,8 @@ export class Water {
         varying vec2 vUv;
         varying vec3 vWorld;
         varying vec3 vView;
+        #include <common>
+        #include <fog_pars_fragment>
         void main() {
           vec3 N = normalize(vec3(
             sin(vWorld.x * 0.08 + uTime) * 0.15,
@@ -184,11 +193,12 @@ export class Water {
           ));
           vec3 V = normalize(vView);
           float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-          vec3 col = mix(uDeep, uShallow, 0.45);
-          col = mix(col, uSky, fres * 0.7);
-          float sparkle = pow(max(0.0, sin(vUv.x * 90.0 + uTime) * sin(vUv.y * 70.0 - uTime)), 10.0) * 0.25;
+          vec3 col = mix(uDeep, uShallow, 0.4);
+          col = mix(col, uSky, fres * 0.55);
+          float sparkle = pow(max(0.0, sin(vUv.x * 90.0 + uTime) * sin(vUv.y * 70.0 - uTime)), 10.0) * 0.18;
           col += sparkle;
           gl_FragColor = vec4(col, 0.95);
+          #include <fog_fragment>
         }
       `,
     });
