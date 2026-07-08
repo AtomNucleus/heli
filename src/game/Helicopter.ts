@@ -15,6 +15,7 @@ export class Helicopter {
   private model?: THREE.Group;
   private placeholder?: THREE.Object3D;
   private rotorDisk?: THREE.Mesh;
+  private spinBlades: THREE.Mesh[] = [];
   private tailDisk?: THREE.Mesh;
   private exhaust: THREE.Points;
   private wash: THREE.Points;
@@ -136,27 +137,49 @@ export class Helicopter {
   }
 
   private buildRotorFx(hubY: number, tailZ: number, tailY: number) {
-    // Motion-blur disc for the spinning main rotor.
+    // Motion-blur disc for the spinning main rotor, sitting just above the
+    // model's static blades so it occludes them when spun up.
     const diskTex = this.makeRotorTexture();
     const diskMat = new THREE.MeshBasicMaterial({
       map: diskTex,
-      color: 0xaab2ad,
+      color: 0x2a2f30,
       transparent: true,
       opacity: 0,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
-    this.rotorDisk = new THREE.Mesh(new THREE.CircleGeometry(this.rotorRadius * 1.02, 48), diskMat);
+    this.rotorDisk = new THREE.Mesh(new THREE.CircleGeometry(this.rotorRadius * 1.04, 48), diskMat);
     this.rotorDisk.rotation.x = -Math.PI / 2;
-    this.rotorDisk.position.set(0, hubY, 0);
-    this.mainRotor.position.set(0, hubY, 0);
-    this.group.add(this.rotorDisk, this.mainRotor);
+    this.rotorDisk.position.set(0, hubY + 0.05, 0);
+    this.group.add(this.rotorDisk);
+
+    // Fast-spinning translucent blades that fade in ABOVE idle (so they don't
+    // double up with the model's static blades on the parked aircraft).
+    this.mainRotor.position.set(0, hubY + 0.06, 0);
+    const bladeMat = new THREE.MeshStandardMaterial({
+      color: 0x0e1012,
+      metalness: 0.2,
+      roughness: 0.7,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+    for (let i = 0; i < 4; i++) {
+      const blade = new THREE.Mesh(
+        new THREE.BoxGeometry(0.16, 0.015, this.rotorRadius * 1.9),
+        bladeMat,
+      );
+      blade.rotation.y = (i * Math.PI) / 4;
+      this.mainRotor.add(blade);
+      this.spinBlades.push(blade);
+    }
+    this.group.add(this.mainRotor);
 
     // Tail rotor blur disc.
-    const tailR = this.rotorRadius * 0.28;
+    const tailR = this.rotorRadius * 0.3;
     const tailMat = new THREE.MeshBasicMaterial({
       map: diskTex,
-      color: 0x9aa39d,
+      color: 0x26292a,
       transparent: true,
       opacity: 0,
       side: THREE.DoubleSide,
@@ -176,21 +199,21 @@ export class Helicopter {
     const ctx = canvas.getContext('2d')!;
     const cx = size / 2;
     const grad = ctx.createRadialGradient(cx, cx, size * 0.05, cx, cx, cx);
-    grad.addColorStop(0, 'rgba(210,215,210,0.05)');
-    grad.addColorStop(0.55, 'rgba(180,186,182,0.12)');
-    grad.addColorStop(0.9, 'rgba(150,158,152,0.30)');
-    grad.addColorStop(1, 'rgba(120,128,122,0)');
+    grad.addColorStop(0, 'rgba(70,74,76,0.18)');
+    grad.addColorStop(0.55, 'rgba(60,64,66,0.42)');
+    grad.addColorStop(0.92, 'rgba(40,44,46,0.72)');
+    grad.addColorStop(1, 'rgba(30,32,34,0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.arc(cx, cx, cx, 0, Math.PI * 2);
     ctx.fill();
-    // Faint streaks to read as blade motion.
-    ctx.strokeStyle = 'rgba(90,96,92,0.16)';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 24; i++) {
-      const a = (i / 24) * Math.PI * 2;
+    // Blade-streak arcs to read as motion blur.
+    ctx.strokeStyle = 'rgba(20,22,24,0.45)';
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 28; i++) {
+      const a = (i / 28) * Math.PI * 2;
       ctx.beginPath();
-      ctx.arc(cx, cx, cx * (0.35 + (i % 5) * 0.12), a, a + 0.5);
+      ctx.arc(cx, cx, cx * (0.3 + (i % 6) * 0.11), a, a + 0.7);
       ctx.stroke();
     }
     const tex = new THREE.CanvasTexture(canvas);
@@ -223,15 +246,24 @@ export class Helicopter {
     const spin = rpm * rpm * 42;
     this.rotorAngle += spin * dt;
     this.tailAngle += spin * 3.2 * dt;
+    this.mainRotor.rotation.y = this.rotorAngle;
+
+    // Spinning blades read the rotor at low/mid RPM; the blur disc takes over
+    // and dominates at high RPM.
+    const bladeOpacity = THREE.MathUtils.clamp((rpm - 0.2) * 0.9, 0, 0.4);
+    for (const blade of this.spinBlades) {
+      (blade.material as THREE.MeshStandardMaterial).opacity = bladeOpacity;
+    }
+    this.mainRotor.visible = bladeOpacity > 0.001;
 
     if (this.rotorDisk) {
       const diskMat = this.rotorDisk.material as THREE.MeshBasicMaterial;
-      diskMat.opacity = THREE.MathUtils.clamp((rpm - 0.3) * 0.95, 0, 0.72);
+      diskMat.opacity = THREE.MathUtils.clamp((rpm - 0.4) * 1.1, 0, 0.85);
       this.rotorDisk.rotation.z = this.rotorAngle * 0.2;
     }
     if (this.tailDisk) {
       const tMat = this.tailDisk.material as THREE.MeshBasicMaterial;
-      tMat.opacity = THREE.MathUtils.clamp((rpm - 0.35) * 0.95, 0, 0.62);
+      tMat.opacity = THREE.MathUtils.clamp((rpm - 0.35) * 1.0, 0, 0.7);
       this.tailDisk.rotation.z = this.tailAngle;
     }
 
