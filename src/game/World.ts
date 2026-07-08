@@ -1,12 +1,16 @@
 import * as THREE from 'three';
 import { Terrain } from './Terrain';
 import { Water } from './Water';
+import { Grass } from './Grass';
+import { Gravel } from './Gravel';
 import { Rings, buildCourseRings } from './Rings';
 
 export class World {
   readonly group = new THREE.Group();
   readonly terrain: Terrain;
   readonly water: Water;
+  readonly grass: Grass;
+  readonly gravel: Gravel;
   readonly rings: Rings;
   readonly pads: THREE.Mesh[] = [];
   readonly spawn = new THREE.Vector3(8, 6, 5);
@@ -15,10 +19,20 @@ export class World {
   private trees: THREE.InstancedMesh;
   private rocks: THREE.InstancedMesh;
   private clock = 0;
+  private padMaterials: THREE.MeshStandardMaterial[] = [];
+  private envMap: THREE.Texture | null = null;
 
-  constructor() {
-    this.terrain = new Terrain(420, 128);
-    this.water = new Water(900);
+  constructor(options?: {
+    envMap?: THREE.Texture | null;
+    sunDirection?: THREE.Vector3;
+  }) {
+    this.envMap = options?.envMap ?? null;
+
+    this.terrain = new Terrain(420, 128, this.envMap);
+    this.water = new Water(900, {
+      sunDirection: options?.sunDirection,
+      fog: true,
+    });
     this.waterLevel = this.water.level;
     this.group.add(this.terrain.mesh);
     this.group.add(this.water.mesh);
@@ -28,13 +42,26 @@ export class World {
     this.rocks = this.scatterRocks(180);
     this.group.add(this.trees, this.rocks);
 
+    this.grass = new Grass((x, z) => this.terrain.getHeight(x, z), 12000);
+    this.gravel = new Gravel((x, z) => this.terrain.getHeight(x, z), 3200);
+    this.group.add(this.grass.mesh, this.gravel.mesh);
+
     this.buildPads();
     this.rings = new Rings(buildCourseRings((x, z) => this.terrain.getHeight(x, z)));
     this.group.add(this.rings.group);
 
-    // Align spawn to terrain
     const h = this.terrain.getHeight(this.spawn.x, this.spawn.z);
     this.spawn.y = h + 1.4;
+  }
+
+  setEnvMap(envMap: THREE.Texture | null) {
+    this.envMap = envMap;
+    this.terrain.setEnvMap(envMap);
+    for (const mat of this.padMaterials) {
+      mat.envMap = envMap;
+      mat.envMapIntensity = 0.55;
+      mat.needsUpdate = true;
+    }
   }
 
   getHeight(x: number, z: number): number {
@@ -46,8 +73,19 @@ export class World {
     this.water.update(this.clock);
   }
 
+  /** Drive grass / gravel from helicopter state (also used in title attract). */
+  updateEffects(
+    heliPos: THREE.Vector3,
+    rpm: number,
+    agl: number,
+    onGround: boolean,
+    dt: number,
+  ) {
+    this.grass.update(heliPos, rpm, agl, onGround, dt);
+    this.gravel.update(heliPos, rpm, agl, onGround, dt);
+  }
+
   private addSkyDecor() {
-    // Distant low hills as simple silhouettes
     const mat = new THREE.MeshStandardMaterial({
       color: 0x0a1820,
       roughness: 1,
@@ -70,7 +108,6 @@ export class World {
   private scatterTrees(count: number): THREE.InstancedMesh {
     const trunkGeo = new THREE.CylinderGeometry(0.15, 0.25, 1.2, 5);
     const canopyGeo = new THREE.ConeGeometry(1.1, 2.4, 6);
-    // Combine into one mesh via InstancedMesh of canopy only + separate trunks would be 2 draws — use single cone trees
     const geo = new THREE.ConeGeometry(1.0, 2.8, 6);
     const mat = new THREE.MeshStandardMaterial({
       color: 0x1a3a28,
@@ -82,6 +119,8 @@ export class World {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
 
+    // Per-instance color variation
+    const colors = new Float32Array(count * 3);
     const dummy = new THREE.Object3D();
     let placed = 0;
     let attempts = 0;
@@ -91,7 +130,6 @@ export class World {
       const z = (Math.random() - 0.5) * 360;
       const h = this.terrain.getHeight(x, z);
       if (h < 2.5 || h > 16) continue;
-      // Keep clear of pads / spawn
       if (Math.hypot(x - 8, z - 5) < 22) continue;
       if (Math.hypot(x + 55, z - 40) < 16) continue;
 
@@ -101,17 +139,21 @@ export class World {
       dummy.scale.set(scale * (0.8 + Math.random() * 0.3), scale, scale * (0.8 + Math.random() * 0.3));
       dummy.updateMatrix();
       mesh.setMatrixAt(placed, dummy.matrix);
+
+      const tint = 0.85 + Math.random() * 0.3;
+      colors[placed * 3] = 0.1 * tint;
+      colors[placed * 3 + 1] = 0.22 * tint + Math.random() * 0.06;
+      colors[placed * 3 + 2] = 0.14 * tint;
       placed++;
     }
     mesh.count = placed;
     mesh.instanceMatrix.needsUpdate = true;
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(colors.subarray(0, placed * 3), 3);
 
-    // Add trunk instances lightly
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.9 });
     const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, placed);
     trunks.castShadow = true;
     let ti = 0;
-    // Re-read matrices from canopy — approximate trunk under each
     const m = new THREE.Matrix4();
     const p = new THREE.Vector3();
     const q = new THREE.Quaternion();
@@ -167,17 +209,25 @@ export class World {
   private buildPads() {
     const padMat = new THREE.MeshStandardMaterial({
       color: 0x2a3030,
-      metalness: 0.4,
-      roughness: 0.55,
+      metalness: 0.55,
+      roughness: 0.42,
       emissive: 0x0a2a1a,
       emissiveIntensity: 0.2,
+      envMap: this.envMap ?? undefined,
+      envMapIntensity: 0.55,
     });
+    this.padMaterials.push(padMat);
+
     const markMat = new THREE.MeshStandardMaterial({
       color: 0x3dff9a,
       emissive: 0x3dff9a,
       emissiveIntensity: 0.5,
       roughness: 0.4,
+      metalness: 0.3,
+      envMap: this.envMap ?? undefined,
+      envMapIntensity: 0.35,
     });
+    this.padMaterials.push(markMat);
 
     const makePad = (x: number, z: number) => {
       const h = this.terrain.getHeight(x, z);

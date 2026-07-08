@@ -37,7 +37,7 @@ export class Helicopter {
     this.exhaust.position.set(-0.15, 0.55, 1.1);
     this.group.add(this.exhaust);
 
-    const washData = this.buildParticles(72, 0xc2b280, 0.14);
+    const washData = this.buildParticles(120, 0xc2b280, 0.18);
     this.wash = washData.points;
     this.washVel = washData.velocities;
     this.wash.position.set(0, -1.0, 0);
@@ -268,10 +268,12 @@ export class Helicopter {
     }
 
     this.updateParticles(this.exhaust, this.exhaustVel, dt, 2.5, rpm > 0.3);
-    const washStrength = rpm * THREE.MathUtils.clamp(1 - agl / 10, 0, 1);
-    (this.wash.material as THREE.PointsMaterial).opacity = washStrength * 0.5;
-    this.wash.visible = (washStrength > 0.05 && !onGround) || (onGround && rpm > 0.4);
-    this.updateParticles(this.wash, this.washVel, dt, 4 + speed * 0.1, washStrength > 0.05);
+    const washStrength = rpm * THREE.MathUtils.clamp(1 - agl / 12, 0, 1);
+    const groundBoost = onGround && rpm > 0.3 ? rpm * 0.55 : 0;
+    const wash = Math.max(washStrength, groundBoost);
+    (this.wash.material as THREE.PointsMaterial).opacity = wash * 0.65;
+    this.wash.visible = wash > 0.04;
+    this.updateParticles(this.wash, this.washVel, dt, 5.5 + speed * 0.15 + wash * 3, wash > 0.04);
 
     void this.loaded;
   }

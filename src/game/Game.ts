@@ -61,7 +61,11 @@ export class Game {
     const sky = this.setupSky();
     const envMap = this.buildEnvMap(sky);
 
-    this.world = new World();
+    this.world = new World({
+      envMap,
+      sunDirection: this.sun.clone().normalize(),
+    });
+    this.world.setEnvMap(envMap);
     this.scene.add(this.world.group);
 
     this.heli = new Helicopter(envMap);
@@ -197,10 +201,17 @@ export class Game {
     this.world.update(dt);
 
     if (this.phase === 'title' || this.phase === 'briefing') {
-      // Attract: parked heli, slow orbit
+      // Attract: parked heli, slow orbit — still drive grass/gravel lightly
       this.flight.state.rpm = 0.15 + Math.sin(this.elapsed * 0.5) * 0.02;
       this.heli.update(dt, this.flight.state.rpm, 1.2, 0, true);
       this.syncHeliFromFlight();
+      this.world.updateEffects(
+        this.flight.state.position,
+        this.flight.state.rpm,
+        1.2,
+        true,
+        dt,
+      );
       this.cameraRig.setAttract(this.flight.state.position, this.elapsed);
       this.audio.update(0.15, 0, false);
       this.render();
@@ -256,6 +267,13 @@ export class Game {
 
     const speed = this.flight.getAirspeed();
     this.heli.update(dt, this.flight.state.rpm, this.flight.state.agl, speed, this.flight.state.onGround);
+    this.world.updateEffects(
+      this.flight.state.position,
+      this.flight.state.rpm,
+      this.flight.state.agl,
+      this.flight.state.onGround,
+      dt,
+    );
 
     this.missionTime += dt;
     this.introBlend = Math.min(1, this.introBlend + dt * 0.55);
