@@ -23,14 +23,16 @@ export class Gravel {
   private dummy = new THREE.Object3D();
   private dirty = true;
 
-  constructor(getHeight: (x: number, z: number) => number, count = 3200) {
-    const geo = new THREE.DodecahedronGeometry(0.12, 0);
-    // Slight irregularity via non-uniform scale per instance
+  constructor(getHeight: (x: number, z: number) => number, count = 4000) {
+    // Unit dodecahedron; instance scale 0.18–0.45 makes grains readable
+    const geo = new THREE.DodecahedronGeometry(1, 0);
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x6a6558,
-      roughness: 0.92,
-      metalness: 0.08,
+      color: 0xffffff,
+      roughness: 0.68,
+      metalness: 0.32,
       flatShading: true,
+      emissive: 0x2a2418,
+      emissiveIntensity: 0.28,
     });
 
     this.mesh = new THREE.InstancedMesh(geo, mat, count);
@@ -38,15 +40,25 @@ export class Gravel {
     this.mesh.receiveShadow = true;
     this.mesh.frustumCulled = true;
 
-    // Dense around pads, lighter shore band
-    const pads: { x: number; z: number; r: number; dens: number }[] = [
-      { x: 8, z: 5, r: 14, dens: 0.55 },
-      { x: -55, z: 40, r: 12, dens: 0.35 },
+    const colors = new Float32Array(count * 3);
+    const colorPalettes: [number, number, number][] = [
+      [0.85, 0.72, 0.48], // tan
+      [0.7, 0.68, 0.64], // grey
+      [0.62, 0.48, 0.34], // brown
+      [0.78, 0.74, 0.62], // warm grey
+      [0.9, 0.82, 0.58], // light sand
+      [0.55, 0.52, 0.48], // dark stone
+    ];
+
+    // Dense ring just outside pad cylinder + pad apron fill
+    const pads: { x: number; z: number; rInner: number; rOuter: number; dens: number }[] = [
+      { x: 8, z: 5, rInner: 7.2, rOuter: 16, dens: 0.6 },
+      { x: -55, z: 40, rInner: 7.2, rOuter: 14, dens: 0.35 },
     ];
 
     let placed = 0;
     let attempts = 0;
-    const maxAttempts = count * 20;
+    const maxAttempts = count * 25;
 
     while (placed < count && attempts < maxAttempts) {
       attempts++;
@@ -54,18 +66,26 @@ export class Gravel {
       let z: number;
       const roll = Math.random();
 
-      if (roll < 0.55) {
-        // Primary pad cluster
+      if (roll < 0.62) {
+        // Primary pad: denser ring just outside cylinder
         const p = pads[0];
         const ang = Math.random() * Math.PI * 2;
-        const rad = Math.sqrt(Math.random()) * p.r;
+        const t = Math.random();
+        // Bias toward outer ring (apron edge)
+        const rad =
+          t < 0.55
+            ? p.rInner + Math.random() * (p.rOuter - p.rInner) * 0.45
+            : Math.sqrt(Math.random()) * p.rOuter;
         x = p.x + Math.cos(ang) * rad;
         z = p.z + Math.sin(ang) * rad;
-      } else if (roll < 0.8) {
-        // Secondary pad
+      } else if (roll < 0.88) {
         const p = pads[1];
         const ang = Math.random() * Math.PI * 2;
-        const rad = Math.sqrt(Math.random()) * p.r;
+        const t = Math.random();
+        const rad =
+          t < 0.55
+            ? p.rInner + Math.random() * (p.rOuter - p.rInner) * 0.5
+            : Math.sqrt(Math.random()) * p.rOuter;
         x = p.x + Math.cos(ang) * rad;
         z = p.z + Math.sin(ang) * rad;
       } else {
@@ -75,24 +95,23 @@ export class Gravel {
       }
 
       const h = getHeight(x, z);
-      // Keep on solid ground near pads or low coastal band
       const nearPad =
-        Math.hypot(x - 8, z - 5) < 15 || Math.hypot(x + 55, z - 40) < 13;
+        Math.hypot(x - 8, z - 5) < 17 || Math.hypot(x + 55, z - 40) < 15;
       if (nearPad) {
-        if (h < 2.0 || h > 12) continue;
+        // Sit on pad apron / terrain — above water
+        if (h < 2.2 || h > 12) continue;
       } else {
-        // Shore gravel: low elevation band
-        if (h < 0.8 || h > 3.5) continue;
+        if (h < 0.9 || h > 3.5) continue;
       }
 
-      // Don't place right under H mark center (tiny clear)
+      // Tiny clear under H mark center
       if (Math.hypot(x - 8, z - 5) < 1.2) continue;
       if (Math.hypot(x + 55, z - 40) < 1.2) continue;
 
-      const scale = 0.35 + Math.random() * 0.9;
+      const scale = 0.38 + Math.random() * 0.42;
       const grain: Grain = {
         baseX: x,
-        baseY: h + scale * 0.04,
+        baseY: h + scale * 0.5,
         baseZ: z,
         ox: 0,
         oy: 0,
@@ -107,11 +126,18 @@ export class Gravel {
       };
       this.grains.push(grain);
       this.writeInstance(placed, grain);
+
+      const pal = colorPalettes[Math.floor(Math.random() * colorPalettes.length)];
+      const jitter = 0.9 + Math.random() * 0.2;
+      colors[placed * 3] = pal[0] * jitter;
+      colors[placed * 3 + 1] = pal[1] * jitter;
+      colors[placed * 3 + 2] = pal[2] * jitter;
       placed++;
     }
 
     this.mesh.count = placed;
     this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.instanceColor = new THREE.InstancedBufferAttribute(colors.subarray(0, placed * 3), 3);
     this.dirty = false;
   }
 
@@ -132,10 +158,10 @@ export class Gravel {
   ) {
     const heightFactor = THREE.MathUtils.clamp(1 - agl / 8, 0, 1);
     let wash = rpm * rpm * heightFactor;
-    if (onGround && rpm > 0.25) wash = Math.max(wash, rpm * 0.85);
-    // Impulse radius around heli
-    const radius = 9 + wash * 4;
-    const impulse = wash * 18;
+    if (onGround && rpm > 0.25) wash = Math.max(wash, rpm * 1.15);
+    // Stronger impulse so motion is obvious on landing / high wash
+    const radius = 10 + wash * 5;
+    const impulse = wash * 32;
 
     let any = false;
     for (let i = 0; i < this.grains.length; i++) {
@@ -144,42 +170,37 @@ export class Gravel {
       const dz = g.baseZ + g.oz - heliPos.z;
       const dist = Math.hypot(dx, dz);
 
-      if (wash > 0.08 && dist < radius && dist > 0.15) {
+      if (wash > 0.06 && dist < radius && dist > 0.15) {
         const fall = 1 - dist / radius;
         const force = impulse * fall * fall;
         const inv = 1 / dist;
         g.vx += dx * inv * force * dt;
         g.vz += dz * inv * force * dt;
-        g.vy += force * 0.12 * dt;
-        // Tumble
-        g.rotX += g.vx * dt * 2;
-        g.rotZ += g.vz * dt * 2;
+        g.vy += force * 0.18 * dt;
+        g.rotX += g.vx * dt * 2.5;
+        g.rotZ += g.vz * dt * 2.5;
       }
 
-      // Integrate
       g.ox += g.vx * dt;
       g.oy += g.vy * dt;
       g.oz += g.vz * dt;
 
-      // Gravity + ground clamp
       g.vy -= 9.5 * dt;
       if (g.oy < 0) {
         g.oy = 0;
-        g.vy *= -0.25;
+        g.vy *= -0.28;
         if (Math.abs(g.vy) < 0.05) g.vy = 0;
       }
 
-      // Spring back toward rest + damping (alive repeated landings)
-      g.vx += -g.ox * 1.8 * dt;
-      g.vz += -g.oz * 1.8 * dt;
-      g.vx *= Math.exp(-3.2 * dt);
-      g.vz *= Math.exp(-3.2 * dt);
-      g.vy *= Math.exp(-1.5 * dt);
+      g.vx += -g.ox * 1.6 * dt;
+      g.vz += -g.oz * 1.6 * dt;
+      g.vx *= Math.exp(-2.8 * dt);
+      g.vz *= Math.exp(-2.8 * dt);
+      g.vy *= Math.exp(-1.4 * dt);
 
-      // Cap displacement so grains don't fly forever
       const disp = Math.hypot(g.ox, g.oz);
-      if (disp > 4.5) {
-        const s = 4.5 / disp;
+      if (disp > 5.5) {
+        const s = 5.5 / disp;
         g.ox *= s;
         g.oz *= s;
       }

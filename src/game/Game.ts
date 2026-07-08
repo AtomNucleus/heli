@@ -51,10 +51,10 @@ export class Game {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.18;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    this.scene.fog = new THREE.FogExp2(0x071018, 0.0042);
+    this.scene.fog = new THREE.FogExp2(0x071018, 0.0034);
     this.scene.background = new THREE.Color(0x071018);
 
     this.setupLighting();
@@ -66,6 +66,7 @@ export class Game {
       sunDirection: this.sun.clone().normalize(),
     });
     this.world.setEnvMap(envMap);
+    this.world.water.setSunDirection(this.sun);
     this.scene.add(this.world.group);
 
     this.heli = new Helicopter(envMap);
@@ -83,10 +84,10 @@ export class Game {
   }
 
   private setupLighting() {
-    const hemi = new THREE.HemisphereLight(0x8ec8e0, 0x1a2a18, 0.55);
+    const hemi = new THREE.HemisphereLight(0x9ed0e8, 0x243820, 0.85);
     this.scene.add(hemi);
 
-    const sun = new THREE.DirectionalLight(0xfff0d8, 1.65);
+    const sun = new THREE.DirectionalLight(0xfff0d8, 2.05);
     sun.position.set(80, 120, 40);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -99,11 +100,11 @@ export class Game {
     sun.shadow.bias = -0.0002;
     this.scene.add(sun);
 
-    const fill = new THREE.DirectionalLight(0x3a6a80, 0.25);
+    const fill = new THREE.DirectionalLight(0x4a7a90, 0.42);
     fill.position.set(-40, 30, -60);
     this.scene.add(fill);
 
-    const ambient = new THREE.AmbientLight(0x102018, 0.15);
+    const ambient = new THREE.AmbientLight(0x183028, 0.28);
     this.scene.add(ambient);
   }
 

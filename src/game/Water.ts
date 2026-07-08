@@ -45,7 +45,6 @@ function makeWaterNormals(size = 256): THREE.Texture {
       const h = fbm(u * 8, v * 8);
       const hx = fbm((u + eps) * 8, v * 8);
       const hy = fbm(u * 8, (v + eps) * 8);
-      // Encode normal in RGB
       let nx = (h - hx) * 12;
       let ny = (h - hy) * 12;
       let nz = 1;
@@ -79,7 +78,7 @@ export class Water {
   private fallbackUniforms: { uTime: { value: number } } | null = null;
 
   constructor(
-    size = 900,
+    size = 1100,
     options?: {
       sunDirection?: THREE.Vector3;
       fog?: boolean;
@@ -95,21 +94,23 @@ export class Water {
         waterNormals: normals,
         sunDirection: options?.sunDirection?.clone() ?? new THREE.Vector3(0.55, 0.85, 0.25).normalize(),
         sunColor: 0xfff0d8,
-        waterColor: 0x0a3040,
-        distortionScale: 2.8,
+        // Brighter so sky reflection reads clearly
+        waterColor: 0x0e4a5c,
+        distortionScale: 3.8,
         fog: options?.fog ?? true,
-        alpha: 0.92,
+        alpha: 0.95,
       });
       water.rotation.x = -Math.PI / 2;
       water.position.y = this.level;
-      // Slightly darker coastal look
       const mat = water.material as THREE.ShaderMaterial;
-      if (mat.uniforms?.size) mat.uniforms.size.value = 2.5;
+      if (mat.uniforms?.size) mat.uniforms.size.value = 2.2;
+      // Keep shoreline terrain visible: water draws first, writes depth lightly
+      mat.depthWrite = false;
+      water.renderOrder = -1;
       this.waterObj = water;
       this.mesh = water;
       this.mesh.receiveShadow = true;
     } catch {
-      // Shader fallback with env-ish fresnel look
       this.mesh = this.buildFallback(size);
     }
   }
@@ -170,6 +171,7 @@ export class Water {
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.y = this.level;
     mesh.receiveShadow = true;
+    mesh.renderOrder = -1;
     return mesh;
   }
 

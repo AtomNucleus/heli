@@ -21,27 +21,28 @@ const grassVertex = /* glsl */ `
     vec3 base = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
 
     // Ambient wind
-    float wind = sin(uTime * 1.4 + base.x * 0.35 + base.z * 0.28) * 0.14
-               + cos(uTime * 0.9 + base.z * 0.5) * 0.07;
+    float wind = sin(uTime * 1.4 + base.x * 0.35 + base.z * 0.28) * 0.18
+               + cos(uTime * 0.9 + base.z * 0.5) * 0.1;
     local.x += wind * tip;
-    local.z += cos(uTime * 1.1 + base.x * 0.4) * 0.09 * tip;
+    local.z += cos(uTime * 1.1 + base.x * 0.4) * 0.12 * tip;
 
-    // Rotor wash — part blades away from heli XZ
+    // Rotor wash — dramatic part within ~12m when low AGL
     vec2 toHeli = base.xz - uHeliPos.xz;
     float dist = length(toHeli);
     float washR = 12.0;
     float falloff = 1.0 - smoothstep(0.0, washR, dist);
+    falloff *= falloff;
     float wash = uWashStrength * falloff;
     if (wash > 0.001 && dist > 0.05) {
       vec2 dir = toHeli / max(dist, 0.001);
-      float bend = wash * tip * 1.05;
+      float bend = wash * tip * 1.85;
       local.x += dir.x * bend;
       local.z += dir.y * bend;
-      local.y -= wash * tip * 0.4;
+      local.y -= wash * tip * 0.55;
     }
 
     vColor = instanceColorAttr;
-    vShade = tip * 0.35 + wash * 0.18;
+    vShade = tip * 0.4 + wash * 0.22;
 
     vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(local, 1.0);
     gl_Position = projectionMatrix * mvPosition;
@@ -54,7 +55,7 @@ const grassFragment = /* glsl */ `
   varying float vShade;
 
   void main() {
-    vec3 col = vColor * (0.72 + vShade);
+    vec3 col = vColor * (0.78 + vShade);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -68,7 +69,7 @@ export class Grass {
     uWashStrength: { value: number };
   };
 
-  constructor(getHeight: (x: number, z: number) => number, count = 12000) {
+  constructor(getHeight: (x: number, z: number) => number, count = 16000) {
     this.uniforms = {
       uTime: { value: 0 },
       uHeliPos: { value: new THREE.Vector3(0, 100, 0) },
@@ -93,26 +94,28 @@ export class Grass {
     let placed = 0;
     let attempts = 0;
 
-    while (placed < count && attempts < count * 10) {
+    while (placed < count && attempts < count * 12) {
       attempts++;
       const x = (Math.random() - 0.5) * 340;
       const z = (Math.random() - 0.5) * 340;
       const h = getHeight(x, z);
       if (h < 2.5 || h > 14) continue;
-      if (Math.hypot(x - 8, z - 5) < 22) continue;
-      if (Math.hypot(x + 55, z - 40) < 16) continue;
+      // Closer to pads so wash parting is visible near landing
+      if (Math.hypot(x - 8, z - 5) < 12) continue;
+      if (Math.hypot(x + 55, z - 40) < 10) continue;
 
-      const scaleY = 0.55 + Math.random() * 0.85;
-      const scaleXZ = 0.7 + Math.random() * 0.6;
-      dummy.position.set(x, h + scaleY * 0.45, z);
-      dummy.rotation.set(0, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.08);
+      const scaleY = 0.85 + Math.random() * 1.15;
+      const scaleXZ = 1.25 + Math.random() * 0.9;
+      dummy.position.set(x, h + scaleY * 0.48, z);
+      dummy.rotation.set(0, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.1);
       dummy.scale.set(scaleXZ, scaleY, scaleXZ);
       dummy.updateMatrix();
       this.mesh.setMatrixAt(placed, dummy.matrix);
 
-      const g = 0.32 + Math.random() * 0.22;
-      const r = 0.12 + Math.random() * 0.1;
-      const b = 0.1 + Math.random() * 0.08;
+      // Saturated greens with yellow-lime variation
+      const g = 0.42 + Math.random() * 0.28;
+      const r = 0.14 + Math.random() * 0.14;
+      const b = 0.08 + Math.random() * 0.1;
       colors[placed * 3] = r;
       colors[placed * 3 + 1] = g;
       colors[placed * 3 + 2] = b;
@@ -150,9 +153,12 @@ export class Grass {
       vBase += 4;
     };
 
-    addBlade(0, 0.08, 1.0);
-    addBlade(Math.PI / 3, 0.07, 0.95);
-    addBlade((2 * Math.PI) / 3, 0.06, 0.9);
+    // 5 wider, taller blades per clump for readable density
+    addBlade(0, 0.22, 1.25);
+    addBlade(Math.PI / 5, 0.2, 1.18);
+    addBlade((2 * Math.PI) / 5, 0.19, 1.12);
+    addBlade((3 * Math.PI) / 5, 0.18, 1.3);
+    addBlade((4 * Math.PI) / 5, 0.17, 1.08);
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -170,7 +176,8 @@ export class Grass {
   ) {
     this.uniforms.uTime.value += dt;
     this.uniforms.uHeliPos.value.copy(heliPos);
-    const heightFactor = THREE.MathUtils.clamp(1 - agl / 14, 0, 1);
-    this.uniforms.uWashStrength.value = rpm * rpm * heightFactor * 1.35;
+    // Strong wash when within ~12m and low AGL
+    const heightFactor = THREE.MathUtils.clamp(1 - agl / 12, 0, 1);
+    this.uniforms.uWashStrength.value = rpm * rpm * heightFactor * 2.4;
   }
 }

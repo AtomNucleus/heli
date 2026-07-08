@@ -1,21 +1,12 @@
 import * as THREE from 'three';
 
-/** Procedural canvas albedo + normal for a terrain layer. */
-function makeTerrainMaps(
-  kind: 'grass' | 'sand' | 'rock',
-  size = 256,
-): { albedo: THREE.CanvasTexture; normal: THREE.CanvasTexture } {
+/** Procedural canvas albedo for a terrain layer (no custom normal blending). */
+function makeTerrainAlbedo(kind: 'grass' | 'sand' | 'rock', size = 256): THREE.CanvasTexture {
   const albedoCanvas = document.createElement('canvas');
   albedoCanvas.width = size;
   albedoCanvas.height = size;
   const aCtx = albedoCanvas.getContext('2d')!;
   const aImg = aCtx.createImageData(size, size);
-
-  const normalCanvas = document.createElement('canvas');
-  normalCanvas.width = size;
-  normalCanvas.height = size;
-  const nCtx = normalCanvas.getContext('2d')!;
-  const nImg = nCtx.createImageData(size, size);
 
   const hash = (x: number, y: number) => {
     const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
@@ -48,23 +39,24 @@ function makeTerrainMaps(
   let baseR: number, baseG: number, baseB: number;
   let varAmp: number;
   let nScale: number;
+  // Bright sRGB-authored bases (converted to linear by Three) so land reads under dusk
   if (kind === 'grass') {
-    baseR = 0.16;
-    baseG = 0.36;
-    baseB = 0.18;
-    varAmp = 0.12;
+    baseR = 0.38;
+    baseG = 0.62;
+    baseB = 0.28;
+    varAmp = 0.18;
     nScale = 10;
   } else if (kind === 'sand') {
-    baseR = 0.42;
-    baseG = 0.4;
-    baseB = 0.28;
-    varAmp = 0.1;
+    baseR = 0.78;
+    baseG = 0.68;
+    baseB = 0.42;
+    varAmp = 0.16;
     nScale = 8;
   } else {
-    baseR = 0.38;
-    baseG = 0.4;
-    baseB = 0.36;
-    varAmp = 0.14;
+    baseR = 0.62;
+    baseG = 0.58;
+    baseB = 0.52;
+    varAmp = 0.2;
     nScale = 14;
   }
 
@@ -73,28 +65,33 @@ function makeTerrainMaps(
       const u = x / size;
       const v = y / size;
       const n = fbm(u * nScale, v * nScale, 5);
-      const speck = hash(x * 3.1, y * 7.7) * 0.08;
+      const speck = hash(x * 3.1, y * 7.7) * 0.1;
 
       let r = baseR + (n - 0.5) * varAmp + speck;
       let g = baseG + (n - 0.5) * varAmp * 0.9 + speck * 0.5;
       let b = baseB + (n - 0.5) * varAmp * 0.7;
 
       if (kind === 'grass') {
-        const streak = Math.sin(u * 180 + n * 8) * 0.03;
-        g += streak;
-        r -= streak * 0.3;
+        const streak = Math.sin(u * 180 + n * 8) * 0.045;
+        g += streak + 0.04;
+        r -= streak * 0.25;
       } else if (kind === 'sand') {
-        if (hash(x, y) > 0.92) {
-          r *= 0.75;
-          g *= 0.75;
-          b *= 0.7;
+        if (hash(x, y) > 0.9) {
+          r *= 0.78;
+          g *= 0.78;
+          b *= 0.72;
+        }
+        // Warm highlight flecks
+        if (hash(x * 1.7, y * 2.3) > 0.94) {
+          r = Math.min(1, r + 0.12);
+          g = Math.min(1, g + 0.08);
         }
       } else {
         const crack = Math.abs(fbm(u * 20, v * 20, 2) - 0.5);
         if (crack < 0.04) {
-          r *= 0.55;
-          g *= 0.55;
-          b *= 0.55;
+          r *= 0.5;
+          g *= 0.5;
+          b *= 0.5;
         }
       }
 
@@ -103,40 +100,17 @@ function makeTerrainMaps(
       aImg.data[i + 1] = Math.floor(THREE.MathUtils.clamp(g, 0, 1) * 255);
       aImg.data[i + 2] = Math.floor(THREE.MathUtils.clamp(b, 0, 1) * 255);
       aImg.data[i + 3] = 255;
-
-      const eps = 1 / size;
-      const h0 = fbm(u * nScale, v * nScale, 4);
-      const hx = fbm((u + eps) * nScale, v * nScale, 4);
-      const hy = fbm(u * nScale, (v + eps) * nScale, 4);
-      let nx = (h0 - hx) * 18;
-      let ny = (h0 - hy) * 18;
-      let nz = 1;
-      const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-      nx /= len;
-      ny /= len;
-      nz /= len;
-      nImg.data[i] = Math.floor((nx * 0.5 + 0.5) * 255);
-      nImg.data[i + 1] = Math.floor((ny * 0.5 + 0.5) * 255);
-      nImg.data[i + 2] = Math.floor((nz * 0.5 + 0.5) * 255);
-      nImg.data[i + 3] = 255;
     }
   }
 
   aCtx.putImageData(aImg, 0, 0);
-  nCtx.putImageData(nImg, 0, 0);
 
   const albedo = new THREE.CanvasTexture(albedoCanvas);
   albedo.wrapS = albedo.wrapT = THREE.RepeatWrapping;
   albedo.colorSpace = THREE.SRGBColorSpace;
   albedo.anisotropy = 4;
   albedo.needsUpdate = true;
-
-  const normal = new THREE.CanvasTexture(normalCanvas);
-  normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
-  normal.anisotropy = 4;
-  normal.needsUpdate = true;
-
-  return { albedo, normal };
+  return albedo;
 }
 
 /** Value-noise heightmap terrain with world-XZ textured blends + wet shoreline. */
@@ -168,26 +142,24 @@ export class Terrain {
     }
     geo.computeVertexNormals();
 
-    const grass = makeTerrainMaps('grass', 256);
-    const sand = makeTerrainMaps('sand', 256);
-    const rock = makeTerrainMaps('rock', 256);
+    const grassMap = makeTerrainAlbedo('grass', 256);
+    const sandMap = makeTerrainAlbedo('sand', 256);
+    const rockMap = makeTerrainAlbedo('rock', 256);
 
+    // Albedo height-blend only — no custom normalMap path (avoids perturbNormal2Arb breakage)
     const mat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
-      roughness: 0.9,
+      roughness: 0.86,
       metalness: 0.04,
-      map: grass.albedo,
-      normalMap: grass.normal,
-      normalScale: new THREE.Vector2(0.55, 0.55),
+      map: grassMap,
+      normalMap: null,
       envMap: envMap ?? undefined,
-      envMapIntensity: envMap ? 0.28 : 0.15,
+      envMapIntensity: envMap ? 0.55 : 0.28,
     });
 
     mat.onBeforeCompile = (shader) => {
-      shader.uniforms.uSand = { value: sand.albedo };
-      shader.uniforms.uSandN = { value: sand.normal };
-      shader.uniforms.uRock = { value: rock.albedo };
-      shader.uniforms.uRockN = { value: rock.normal };
+      shader.uniforms.uSand = { value: sandMap };
+      shader.uniforms.uRock = { value: rockMap };
       shader.uniforms.uTile = { value: 0.085 };
 
       shader.vertexShader = shader.vertexShader
@@ -214,9 +186,7 @@ export class Terrain {
           /* glsl */ `
           #include <common>
           uniform sampler2D uSand;
-          uniform sampler2D uSandN;
           uniform sampler2D uRock;
-          uniform sampler2D uRockN;
           uniform float uTile;
           varying vec3 vTerrainWorld;
           varying float vTerrainH;
@@ -241,26 +211,12 @@ export class Terrain {
           grassW /= sumW; sandW /= sumW; rockW /= sumW;
 
           vec4 blendedMap = grassSample * grassW + sandSample * sandW + rockSample * rockW;
+          // Wet shoreline: darker + slightly cooler; roughness handled below
           float wet = 1.0 - smoothstep( 0.2, 2.0, vTerrainH );
-          blendedMap.rgb = mix( blendedMap.rgb, blendedMap.rgb * 0.72, wet * 0.65 );
+          blendedMap.rgb = mix( blendedMap.rgb, blendedMap.rgb * vec3( 0.7, 0.76, 0.8 ), wet * 0.55 );
+          // Lift midtones so land reads under dusk + ACES
+          blendedMap.rgb = blendedMap.rgb * 1.25 + 0.04;
           diffuseColor *= blendedMap;
-          `,
-        )
-        .replace(
-          '#include <normal_fragment_maps>',
-          /* glsl */ `
-          #ifdef USE_NORMALMAP
-            vec3 mapN = texture2D( normalMap, tUV ).xyz * 2.0 - 1.0;
-            vec3 sandN = texture2D( uSandN, tUV * 1.15 ).xyz * 2.0 - 1.0;
-            vec3 rockN = texture2D( uRockN, tUV * 0.75 ).xyz * 2.0 - 1.0;
-            mapN = normalize( mapN * grassW + sandN * sandW + rockN * rockW );
-            mapN.xy *= normalScale;
-            #ifdef USE_TANGENT
-              normal = normalize( vTBN * mapN );
-            #else
-              normal = perturbNormal2Arb( -vViewPosition, normal, mapN, faceDirection );
-            #endif
-          #endif
           `,
         )
         .replace(
@@ -271,24 +227,28 @@ export class Terrain {
             vec4 texelRoughness = texture2D( roughnessMap, vRoughnessMapUv );
             roughnessFactor *= texelRoughness.g;
           #endif
-          roughnessFactor = mix( roughnessFactor, 0.32, wet * 0.75 );
+          // Recompute wet here — locals from map_fragment are out of scope
+          float wetShore = 1.0 - smoothstep( 0.2, 2.0, vTerrainH );
+          roughnessFactor = mix( roughnessFactor, 0.28, wetShore * 0.8 );
           `,
         );
 
       mat.userData.shader = shader;
     };
 
-    mat.customProgramCacheKey = () => 'heli-terrain-blend-v1';
+    // Bump key so broken cached programs from prior normal-blend shader are discarded
+    mat.customProgramCacheKey = () => 'heli-terrain-blend-v3-albedo-bright';
 
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.receiveShadow = true;
     this.mesh.castShadow = false;
+    this.mesh.renderOrder = 0;
   }
 
   setEnvMap(envMap: THREE.Texture | null) {
     const mat = this.mesh.material as THREE.MeshStandardMaterial;
     mat.envMap = envMap;
-    mat.envMapIntensity = 0.28;
+    mat.envMapIntensity = 0.55;
     mat.needsUpdate = true;
   }
 

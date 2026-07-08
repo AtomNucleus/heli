@@ -29,21 +29,21 @@ export class World {
     this.envMap = options?.envMap ?? null;
 
     this.terrain = new Terrain(420, 128, this.envMap);
-    this.water = new Water(900, {
+    this.water = new Water(1100, {
       sunDirection: options?.sunDirection,
       fog: true,
     });
     this.waterLevel = this.water.level;
-    this.group.add(this.terrain.mesh);
     this.group.add(this.water.mesh);
+    this.group.add(this.terrain.mesh);
 
     this.addSkyDecor();
     this.trees = this.scatterTrees(420);
     this.rocks = this.scatterRocks(180);
     this.group.add(this.trees, this.rocks);
 
-    this.grass = new Grass((x, z) => this.terrain.getHeight(x, z), 12000);
-    this.gravel = new Gravel((x, z) => this.terrain.getHeight(x, z), 3200);
+    this.grass = new Grass((x, z) => this.terrain.getHeight(x, z), 16000);
+    this.gravel = new Gravel((x, z) => this.terrain.getHeight(x, z), 4000);
     this.group.add(this.grass.mesh, this.gravel.mesh);
 
     this.buildPads();
