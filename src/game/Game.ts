@@ -58,12 +58,13 @@ export class Game {
     this.scene.background = new THREE.Color(0x071018);
 
     this.setupLighting();
-    this.setupSky();
+    const sky = this.setupSky();
+    const envMap = this.buildEnvMap(sky);
 
     this.world = new World();
     this.scene.add(this.world.group);
 
-    this.heli = new Helicopter();
+    this.heli = new Helicopter(envMap);
     this.scene.add(this.heli.group);
 
     this.flight = new FlightModel(this.world.spawn);
@@ -102,7 +103,7 @@ export class Game {
     this.scene.add(ambient);
   }
 
-  private setupSky() {
+  private setupSky(): Sky {
     const sky = new Sky();
     sky.scale.setScalar(4500);
     const u = sky.material.uniforms;
@@ -113,6 +114,18 @@ export class Game {
     this.sun.setFromSphericalCoords(1, THREE.MathUtils.degToRad(88), THREE.MathUtils.degToRad(160));
     u['sunPosition'].value.copy(this.sun);
     this.scene.add(sky);
+    return sky;
+  }
+
+  /** Prefilter the sky into an env map so the metallic airframe reflects it. */
+  private buildEnvMap(sky: Sky): THREE.Texture {
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const envScene = new THREE.Scene();
+    const skyClone = sky.clone();
+    envScene.add(skyClone);
+    const rt = pmrem.fromScene(envScene, 0, 0.1, 1000);
+    pmrem.dispose();
+    return rt.texture;
   }
 
   start() {

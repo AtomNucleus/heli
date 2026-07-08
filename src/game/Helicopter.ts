@@ -1,26 +1,35 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-function mat(opts: THREE.MeshStandardMaterialParameters) {
-  return new THREE.MeshStandardMaterial(opts);
-}
+// Bell 429 airframe model (CC/MIT, Sketchfab via github.com/FOSS-Supremacy/defy).
+const MODEL_URL = `${import.meta.env.BASE_URL}models/helicopter.glb`;
+// Target main-rotor diameter in world units — keeps framing/scale consistent
+// with the rest of the sim regardless of the raw model size.
+const ROTOR_DIAMETER = 7.4;
 
 export class Helicopter {
   readonly group = new THREE.Group();
   readonly mainRotor = new THREE.Group();
   readonly tailRotor = new THREE.Group();
-  private rotorDisk: THREE.Mesh;
+
+  private model?: THREE.Group;
+  private placeholder?: THREE.Object3D;
+  private rotorDisk?: THREE.Mesh;
+  private spinBlades: THREE.Mesh[] = [];
+  private tailDisk?: THREE.Mesh;
   private exhaust: THREE.Points;
   private wash: THREE.Points;
   private exhaustVel: Float32Array;
   private washVel: Float32Array;
 
+  private rotorRadius = ROTOR_DIAMETER / 2;
   private rotorAngle = 0;
   private tailAngle = 0;
+  private loaded = false;
 
-  constructor() {
-    this.buildAirframe();
-    this.rotorDisk = this.buildRotorDisk();
-    this.group.add(this.rotorDisk);
+  constructor(envMap?: THREE.Texture) {
+    this.buildPlaceholder();
+    this.loadModel(envMap);
 
     const exhaustData = this.buildParticles(48, 0xffaa66, 0.08);
     this.exhaust = exhaustData.points;
@@ -28,182 +37,194 @@ export class Helicopter {
     this.exhaust.position.set(-0.15, 0.55, 1.1);
     this.group.add(this.exhaust);
 
-    const washData = this.buildParticles(64, 0xc2b280, 0.12);
+    const washData = this.buildParticles(72, 0xc2b280, 0.14);
     this.wash = washData.points;
     this.washVel = washData.velocities;
-    this.wash.position.set(0, -1.2, 0);
+    this.wash.position.set(0, -1.0, 0);
     this.group.add(this.wash);
-
-    this.group.castShadow = true;
-    this.group.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) {
-        o.castShadow = true;
-        o.receiveShadow = true;
-      }
-    });
   }
 
-  private buildAirframe() {
-    const bodyMat = mat({
-      color: 0x2a3530,
-      metalness: 0.72,
-      roughness: 0.38,
-    });
-    const accentMat = mat({
-      color: 0x1a4d3a,
-      metalness: 0.55,
-      roughness: 0.42,
-      emissive: 0x0a2a1a,
-      emissiveIntensity: 0.15,
-    });
-    const darkMat = mat({ color: 0x121816, metalness: 0.8, roughness: 0.35 });
-    const glassMat = mat({
-      color: 0x88ccee,
-      metalness: 0.9,
-      roughness: 0.08,
-      transparent: true,
-      opacity: 0.45,
-      envMapIntensity: 1.2,
-    });
-    const skidMat = mat({ color: 0x3a4038, metalness: 0.85, roughness: 0.3 });
-    const rotorMat = mat({ color: 0x1c221e, metalness: 0.4, roughness: 0.55 });
-    const tipMat = mat({
-      color: 0x3dff9a,
-      emissive: 0x3dff9a,
-      emissiveIntensity: 0.6,
-      metalness: 0.3,
-      roughness: 0.4,
-    });
-
-    // Fuselage
-    const fuselage = new THREE.Mesh(new THREE.CapsuleGeometry(0.55, 1.8, 6, 12), bodyMat);
-    fuselage.rotation.z = Math.PI / 2;
-    fuselage.scale.set(1, 0.85, 1.05);
-    fuselage.position.set(0, 0.15, 0.1);
-    this.group.add(fuselage);
-
-    // Nose
-    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.48, 12, 10), bodyMat);
-    nose.scale.set(1.1, 0.85, 1.3);
-    nose.position.set(0, 0.12, -1.15);
-    this.group.add(nose);
-
-    // Cockpit glass
-    const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.52, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), glassMat);
-    canopy.scale.set(0.95, 0.75, 1.1);
-    canopy.position.set(0, 0.35, -0.55);
-    this.group.add(canopy);
-
-    // Cabin stripe
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.08, 1.6), accentMat);
-    stripe.position.set(0, 0.05, 0.05);
-    this.group.add(stripe);
-
-    // Tail boom
-    const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 2.4, 8), bodyMat);
+  /** Simple low-detail stand-in shown until the GLB finishes loading. */
+  private buildPlaceholder() {
+    const g = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: 0x24302b, metalness: 0.6, roughness: 0.5 });
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.55, 1.9, 5, 10), mat);
+    body.rotation.z = Math.PI / 2;
+    body.position.y = 0.1;
+    g.add(body);
+    const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 2.4, 8), mat);
     boom.rotation.x = Math.PI / 2;
-    boom.position.set(0, 0.35, 2.0);
-    this.group.add(boom);
-
-    // Vertical stabilizer
-    const vStab = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.7, 0.55), darkMat);
-    vStab.position.set(0, 0.7, 3.05);
-    this.group.add(vStab);
-
-    const hStab = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.06, 0.35), darkMat);
-    hStab.position.set(0, 0.45, 2.85);
-    this.group.add(hStab);
-
-    // Engine hump
-    const engine = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.35, 0.9), darkMat);
-    engine.position.set(0, 0.55, 0.35);
-    this.group.add(engine);
-
-    // Landing skids
-    const skidGeo = new THREE.CylinderGeometry(0.04, 0.04, 2.2, 6);
-    for (const x of [-0.55, 0.55]) {
-      const skid = new THREE.Mesh(skidGeo, skidMat);
-      skid.rotation.z = Math.PI / 2;
-      skid.rotation.y = Math.PI / 2;
-      skid.position.set(x, -0.55, -0.1);
-      this.group.add(skid);
-
-      for (const z of [-0.7, 0.6]) {
-        const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.55, 5), skidMat);
-        strut.position.set(x, -0.28, z);
-        this.group.add(strut);
-      }
-    }
-
-    // Main rotor hub + blades
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 0.2, 10), darkMat);
-    hub.position.set(0, 0.85, 0.15);
-    this.group.add(hub);
-
-    this.mainRotor.position.set(0, 0.95, 0.15);
-    for (let i = 0; i < 4; i++) {
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.03, 3.6), rotorMat);
-      blade.position.z = 0;
-      const pivot = new THREE.Group();
-      pivot.rotation.y = (i * Math.PI) / 2;
-      blade.position.z = -1.7;
-      const tip = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.032, 0.25), tipMat);
-      tip.position.z = -3.45;
-      pivot.add(blade, tip);
-      this.mainRotor.add(pivot);
-    }
-    this.group.add(this.mainRotor);
-
-    // Mast
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.35, 6), darkMat);
-    mast.position.set(0, 0.78, 0.15);
-    this.group.add(mast);
-
-    // Tail rotor
-    this.tailRotor.position.set(0.12, 0.65, 3.15);
-    for (let i = 0; i < 3; i++) {
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 0.7), rotorMat);
-      const pivot = new THREE.Group();
-      pivot.rotation.x = (i * Math.PI * 2) / 3;
-      blade.position.z = 0.3;
-      pivot.add(blade);
-      this.tailRotor.add(pivot);
-    }
-    this.group.add(this.tailRotor);
-
-    // Nav lights
-    const lightGeo = new THREE.SphereGeometry(0.05, 6, 6);
-    const red = mat({ color: 0xff3333, emissive: 0xff2222, emissiveIntensity: 1.2 });
-    const green = mat({ color: 0x33ff66, emissive: 0x22ff55, emissiveIntensity: 1.2 });
-    const leftLight = new THREE.Mesh(lightGeo, red);
-    leftLight.position.set(-0.55, 0.2, -0.3);
-    const rightLight = new THREE.Mesh(lightGeo, green);
-    rightLight.position.set(0.55, 0.2, -0.3);
-    this.group.add(leftLight, rightLight);
+    boom.position.set(0, 0.3, 1.9);
+    g.add(boom);
+    g.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) o.castShadow = true;
+    });
+    this.placeholder = g;
+    this.group.add(g);
   }
 
-  private buildRotorDisk(): THREE.Mesh {
-    const geo = new THREE.CircleGeometry(3.5, 32);
-    const matDisk = new THREE.MeshBasicMaterial({
-      color: 0x889988,
+  private loadModel(envMap?: THREE.Texture) {
+    const loader = new GLTFLoader();
+    loader.load(
+      MODEL_URL,
+      (gltf) => {
+        const model = gltf.scene;
+
+        // The glTF already carries a Y-up root transform; only yaw is needed to
+        // point the nose along the sim's forward (−Z) axis.
+        model.rotation.y = Math.PI;
+        model.updateMatrixWorld(true);
+
+        // Uniform scale so the rotor span matches ROTOR_DIAMETER.
+        let box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const scale = ROTOR_DIAMETER / Math.max(size.x, size.z);
+        model.scale.setScalar(scale);
+        model.updateMatrixWorld(true);
+
+        // Recenter horizontally on the origin and drop so the skids sit just
+        // below the flight reference point.
+        box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        model.position.x -= center.x;
+        model.position.z -= center.z;
+        model.position.y -= box.min.y + 0.95;
+        model.updateMatrixWorld(true);
+
+        model.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (mesh.isMesh) {
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            const apply = (m: THREE.Material) => {
+              const std = m as THREE.MeshStandardMaterial;
+              if (std.isMeshStandardMaterial) {
+                if (envMap) {
+                  std.envMap = envMap;
+                  std.envMapIntensity = 0.9;
+                }
+                std.needsUpdate = true;
+              }
+            };
+            if (Array.isArray(mesh.material)) mesh.material.forEach(apply);
+            else if (mesh.material) apply(mesh.material);
+          }
+        });
+
+        this.model = model;
+        this.group.add(model);
+        if (this.placeholder) {
+          this.group.remove(this.placeholder);
+          this.placeholder = undefined;
+        }
+
+        // Derive rotor placement from the model's final bounds.
+        const finalBox = new THREE.Box3().setFromObject(model);
+        const finalSize = finalBox.getSize(new THREE.Vector3());
+        this.rotorRadius = Math.max(finalSize.x, finalSize.z) / 2;
+        const hubY = finalBox.max.y - finalSize.y * 0.06;
+        const tailZ = finalBox.max.z - finalSize.z * 0.08;
+        const tailY = finalBox.min.y + finalSize.y * 0.62;
+
+        this.buildRotorFx(hubY, tailZ, tailY);
+        this.loaded = true;
+      },
+      undefined,
+      (err) => {
+        console.error('Failed to load helicopter model:', err);
+      },
+    );
+  }
+
+  private buildRotorFx(hubY: number, tailZ: number, tailY: number) {
+    // Motion-blur disc for the spinning main rotor, sitting just above the
+    // model's static blades so it occludes them when spun up.
+    const diskTex = this.makeRotorTexture();
+    const diskMat = new THREE.MeshBasicMaterial({
+      map: diskTex,
+      color: 0x2a2f30,
       transparent: true,
       opacity: 0,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
-    const disk = new THREE.Mesh(geo, matDisk);
-    disk.rotation.x = -Math.PI / 2;
-    disk.position.set(0, 0.95, 0.15);
-    return disk;
+    this.rotorDisk = new THREE.Mesh(new THREE.CircleGeometry(this.rotorRadius * 1.04, 48), diskMat);
+    this.rotorDisk.rotation.x = -Math.PI / 2;
+    this.rotorDisk.position.set(0, hubY + 0.05, 0);
+    this.group.add(this.rotorDisk);
+
+    // Fast-spinning translucent blades that fade in ABOVE idle (so they don't
+    // double up with the model's static blades on the parked aircraft).
+    this.mainRotor.position.set(0, hubY + 0.06, 0);
+    const bladeMat = new THREE.MeshStandardMaterial({
+      color: 0x0e1012,
+      metalness: 0.2,
+      roughness: 0.7,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+    for (let i = 0; i < 4; i++) {
+      const blade = new THREE.Mesh(
+        new THREE.BoxGeometry(0.16, 0.015, this.rotorRadius * 1.9),
+        bladeMat,
+      );
+      blade.rotation.y = (i * Math.PI) / 4;
+      this.mainRotor.add(blade);
+      this.spinBlades.push(blade);
+    }
+    this.group.add(this.mainRotor);
+
+    // Tail rotor blur disc.
+    const tailR = this.rotorRadius * 0.3;
+    const tailMat = new THREE.MeshBasicMaterial({
+      map: diskTex,
+      color: 0x26292a,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    this.tailDisk = new THREE.Mesh(new THREE.CircleGeometry(tailR, 24), tailMat);
+    this.tailDisk.position.set(this.rotorRadius * 0.05, tailY, tailZ);
+    this.group.add(this.tailDisk);
+
+    this.wash.position.set(0, -this.rotorRadius * 0.25, 0);
+  }
+
+  private makeRotorTexture(): THREE.Texture {
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    const cx = size / 2;
+    const grad = ctx.createRadialGradient(cx, cx, size * 0.05, cx, cx, cx);
+    grad.addColorStop(0, 'rgba(70,74,76,0.18)');
+    grad.addColorStop(0.55, 'rgba(60,64,66,0.42)');
+    grad.addColorStop(0.92, 'rgba(40,44,46,0.72)');
+    grad.addColorStop(1, 'rgba(30,32,34,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cx, cx, 0, Math.PI * 2);
+    ctx.fill();
+    // Blade-streak arcs to read as motion blur.
+    ctx.strokeStyle = 'rgba(20,22,24,0.45)';
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 28; i++) {
+      const a = (i / 28) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(cx, cx, cx * (0.3 + (i % 6) * 0.11), a, a + 0.7);
+      ctx.stroke();
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
   }
 
   private buildParticles(count: number, color: number, size: number) {
     const positions = new Float32Array(count * 3);
     const velocities = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
-      positions[i * 3] = 0;
-      positions[i * 3 + 1] = 0;
-      positions[i * 3 + 2] = 0;
       velocities[i * 3] = (Math.random() - 0.5) * 0.5;
       velocities[i * 3 + 1] = Math.random() * 0.5;
       velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.5;
@@ -226,17 +247,33 @@ export class Helicopter {
     this.rotorAngle += spin * dt;
     this.tailAngle += spin * 3.2 * dt;
     this.mainRotor.rotation.y = this.rotorAngle;
-    this.tailRotor.rotation.x = this.tailAngle;
 
-    const diskMat = this.rotorDisk.material as THREE.MeshBasicMaterial;
-    diskMat.opacity = THREE.MathUtils.clamp((rpm - 0.55) * 1.4, 0, 0.28);
-    this.mainRotor.visible = diskMat.opacity < 0.2;
+    // Spinning blades read the rotor at low/mid RPM; the blur disc takes over
+    // and dominates at high RPM.
+    const bladeOpacity = THREE.MathUtils.clamp((rpm - 0.2) * 0.9, 0, 0.4);
+    for (const blade of this.spinBlades) {
+      (blade.material as THREE.MeshStandardMaterial).opacity = bladeOpacity;
+    }
+    this.mainRotor.visible = bladeOpacity > 0.001;
+
+    if (this.rotorDisk) {
+      const diskMat = this.rotorDisk.material as THREE.MeshBasicMaterial;
+      diskMat.opacity = THREE.MathUtils.clamp((rpm - 0.4) * 1.1, 0, 0.85);
+      this.rotorDisk.rotation.z = this.rotorAngle * 0.2;
+    }
+    if (this.tailDisk) {
+      const tMat = this.tailDisk.material as THREE.MeshBasicMaterial;
+      tMat.opacity = THREE.MathUtils.clamp((rpm - 0.35) * 1.0, 0, 0.7);
+      this.tailDisk.rotation.z = this.tailAngle;
+    }
 
     this.updateParticles(this.exhaust, this.exhaustVel, dt, 2.5, rpm > 0.3);
     const washStrength = rpm * THREE.MathUtils.clamp(1 - agl / 10, 0, 1);
     (this.wash.material as THREE.PointsMaterial).opacity = washStrength * 0.5;
     this.wash.visible = (washStrength > 0.05 && !onGround) || (onGround && rpm > 0.4);
     this.updateParticles(this.wash, this.washVel, dt, 4 + speed * 0.1, washStrength > 0.05);
+
+    void this.loaded;
   }
 
   private updateParticles(
