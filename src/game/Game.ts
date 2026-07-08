@@ -36,7 +36,8 @@ export class Game {
   private awaitingLand = false;
   private landWindow = 0;
   private animId = 0;
-  private sun = new THREE.Vector3();
+  /** Shared sun direction (sky + directional light + water). */
+  readonly sun = new THREE.Vector3();
 
   onPhaseChange?: (phase: GamePhase) => void;
 
@@ -51,22 +52,25 @@ export class Game {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.18;
+    this.renderer.toneMappingExposure = 1.28;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    this.scene.fog = new THREE.FogExp2(0x071018, 0.0034);
-    this.scene.background = new THREE.Color(0x071018);
+    // Lighter fog so shoreline water reflections stay readable
+    this.scene.fog = new THREE.FogExp2(0x0a1828, 0.00155);
+    this.scene.background = new THREE.Color(0x081420);
 
     this.setupLighting();
     const sky = this.setupSky();
     const envMap = this.buildEnvMap(sky);
 
+    // Match water sun to directional light direction
+    const sunDir = this.sun.clone().normalize();
     this.world = new World({
       envMap,
-      sunDirection: this.sun.clone().normalize(),
+      sunDirection: sunDir,
     });
     this.world.setEnvMap(envMap);
-    this.world.water.setSunDirection(this.sun);
+    this.world.water.setSunDirection(sunDir);
     this.scene.add(this.world.group);
 
     this.heli = new Helicopter(envMap);
@@ -87,8 +91,11 @@ export class Game {
     const hemi = new THREE.HemisphereLight(0x9ed0e8, 0x243820, 0.85);
     this.scene.add(hemi);
 
-    const sun = new THREE.DirectionalLight(0xfff0d8, 2.05);
-    sun.position.set(80, 120, 40);
+    // Higher sun for stronger water specular + terrain read
+    this.sun.setFromSphericalCoords(1, THREE.MathUtils.degToRad(68), THREE.MathUtils.degToRad(155));
+
+    const sun = new THREE.DirectionalLight(0xfff4e0, 2.35);
+    sun.position.copy(this.sun).multiplyScalar(160);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 10;
@@ -112,11 +119,11 @@ export class Game {
     const sky = new Sky();
     sky.scale.setScalar(4500);
     const u = sky.material.uniforms;
-    u['turbidity'].value = 4.5;
-    u['rayleigh'].value = 1.8;
-    u['mieCoefficient'].value = 0.004;
-    u['mieDirectionalG'].value = 0.75;
-    this.sun.setFromSphericalCoords(1, THREE.MathUtils.degToRad(88), THREE.MathUtils.degToRad(160));
+    u['turbidity'].value = 3.2;
+    u['rayleigh'].value = 2.2;
+    u['mieCoefficient'].value = 0.0035;
+    u['mieDirectionalG'].value = 0.8;
+    // this.sun already set in setupLighting to match directional light
     u['sunPosition'].value.copy(this.sun);
     this.scene.add(sky);
     return sky;

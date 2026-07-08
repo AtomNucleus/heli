@@ -42,8 +42,8 @@ export class World {
     this.rocks = this.scatterRocks(180);
     this.group.add(this.trees, this.rocks);
 
-    this.grass = new Grass((x, z) => this.terrain.getHeight(x, z), 16000);
-    this.gravel = new Gravel((x, z) => this.terrain.getHeight(x, z), 4000);
+    this.grass = new Grass((x, z) => this.terrain.getHeight(x, z), 20000);
+    this.gravel = new Gravel((x, z) => this.terrain.getHeight(x, z), 9000);
     this.group.add(this.grass.mesh, this.gravel.mesh);
 
     this.buildPads();
@@ -57,9 +57,11 @@ export class World {
   setEnvMap(envMap: THREE.Texture | null) {
     this.envMap = envMap;
     this.terrain.setEnvMap(envMap);
-    for (const mat of this.padMaterials) {
+    for (let i = 0; i < this.padMaterials.length; i++) {
+      const mat = this.padMaterials[i];
       mat.envMap = envMap;
-      mat.envMapIntensity = 0.55;
+      // Pad surface wetter than H-mark paint
+      mat.envMapIntensity = i === 0 ? 0.95 : 0.55;
       mat.needsUpdate = true;
     }
   }
@@ -193,7 +195,8 @@ export class World {
       const z = (Math.random() - 0.5) * 340;
       const h = this.terrain.getHeight(x, z);
       if (h < 1.5 || h > 22) continue;
-      if (Math.hypot(x - 8, z - 5) < 15) continue;
+      if (Math.hypot(x - 8, z - 5) < 22) continue;
+      if (Math.hypot(x + 55, z - 40) < 18) continue;
       const scale = 0.4 + Math.random() * 1.8;
       dummy.position.set(x, h + scale * 0.3, z);
       dummy.rotation.set(Math.random(), Math.random(), Math.random());
@@ -207,14 +210,15 @@ export class World {
   }
 
   private buildPads() {
+    // Wet pad: lower roughness + stronger envMap for subtle sky reflection
     const padMat = new THREE.MeshStandardMaterial({
-      color: 0x2a3030,
-      metalness: 0.55,
-      roughness: 0.42,
+      color: 0x2e3638,
+      metalness: 0.72,
+      roughness: 0.22,
       emissive: 0x0a2a1a,
-      emissiveIntensity: 0.2,
+      emissiveIntensity: 0.18,
       envMap: this.envMap ?? undefined,
-      envMapIntensity: 0.55,
+      envMapIntensity: 0.95,
     });
     this.padMaterials.push(padMat);
 
@@ -222,10 +226,10 @@ export class World {
       color: 0x3dff9a,
       emissive: 0x3dff9a,
       emissiveIntensity: 0.5,
-      roughness: 0.4,
-      metalness: 0.3,
+      roughness: 0.28,
+      metalness: 0.45,
       envMap: this.envMap ?? undefined,
-      envMapIntensity: 0.35,
+      envMapIntensity: 0.55,
     });
     this.padMaterials.push(markMat);
 

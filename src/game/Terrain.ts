@@ -41,10 +41,10 @@ function makeTerrainAlbedo(kind: 'grass' | 'sand' | 'rock', size = 256): THREE.C
   let nScale: number;
   // Bright sRGB-authored bases (converted to linear by Three) so land reads under dusk
   if (kind === 'grass') {
-    baseR = 0.38;
-    baseG = 0.62;
-    baseB = 0.28;
-    varAmp = 0.18;
+    baseR = 0.28;
+    baseG = 0.42;
+    baseB = 0.22;
+    varAmp = 0.14;
     nScale = 10;
   } else if (kind === 'sand') {
     baseR = 0.78;
@@ -237,7 +237,7 @@ export class Terrain {
     };
 
     // Bump key so broken cached programs from prior normal-blend shader are discarded
-    mat.customProgramCacheKey = () => 'heli-terrain-blend-v3-albedo-bright';
+    mat.customProgramCacheKey = () => 'heli-terrain-blend-v5-olive-pad';
 
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.receiveShadow = true;
@@ -268,18 +268,24 @@ export class Terrain {
     const ridge = Math.exp(-((x - 20) ** 2) / 8000 - ((z + 10) ** 2) / 6000) * 12;
     h += ridge * island;
 
+    // Force solid pad aprons so mesh vertices (not just pad centers) stay above water
     const padDx = x - 8;
     const padDz = z - 5;
     const padDist = Math.sqrt(padDx * padDx + padDz * padDz);
-    if (padDist < 18) {
-      const flatten = 1 - padDist / 18;
-      h = THREE.MathUtils.lerp(h, 4.2, flatten * flatten);
+    if (padDist < 20) {
+      const flatten = 1 - padDist / 20;
+      // Stronger blend — apron must read as a raised shelf for gravel / landing
+      const w = Math.min(1, flatten * flatten * 1.35);
+      h = THREE.MathUtils.lerp(h, 4.2, w);
+      if (padDist < 12) h = Math.max(h, 4.0);
     }
 
     const pad2 = Math.sqrt((x + 55) ** 2 + (z - 40) ** 2);
-    if (pad2 < 14) {
-      const f = 1 - pad2 / 14;
-      h = THREE.MathUtils.lerp(h, 6.5, f * f);
+    if (pad2 < 16) {
+      const f = 1 - pad2 / 16;
+      const w = Math.min(1, f * f * 1.35);
+      h = THREE.MathUtils.lerp(h, 6.5, w);
+      if (pad2 < 11) h = Math.max(h, 6.2);
     }
 
     return h;

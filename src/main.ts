@@ -144,6 +144,12 @@ function main() {
   // Allow completing mission from pad without being stuck — also add soft complete button via landing
   // If all rings done, show hint; finish when on pad (handled in Game)
 
+  // Debug / demo harness for screenshots (dev + visual QA)
+  if (import.meta.env.DEV) {
+    ;(window as unknown as { __game: Game; __HELI_DEBUG: Game }).__game = game;
+    ;(window as unknown as { __HELI_DEBUG: Game }).__HELI_DEBUG = game;
+  }
+
   game.start();
 }
 

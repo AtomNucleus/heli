@@ -72,7 +72,8 @@ function makeWaterNormals(size = 256): THREE.Texture {
  */
 export class Water {
   readonly mesh: THREE.Mesh;
-  readonly level = 0.15;
+  /** Raised so bays / shelf edges clearly flood over terrain. */
+  readonly level = 0.85;
   private waterObj: ThreeWater | null = null;
   private clock = 0;
   private fallbackUniforms: { uTime: { value: number } } | null = null;
@@ -93,20 +94,44 @@ export class Water {
         textureHeight: 512,
         waterNormals: normals,
         sunDirection: options?.sunDirection?.clone() ?? new THREE.Vector3(0.55, 0.85, 0.25).normalize(),
-        sunColor: 0xfff0d8,
-        // Brighter so sky reflection reads clearly
-        waterColor: 0x0e4a5c,
-        distortionScale: 3.8,
-        fog: options?.fog ?? true,
-        alpha: 0.95,
+        sunColor: 0xffe8c8,
+        // Deep teal — must stay readable after ACES + SwiftShader
+        waterColor: 0x1a6a78,
+        distortionScale: 3.2,
+        fog: false,
+        alpha: 1.0,
       });
       water.rotation.x = -Math.PI / 2;
       water.position.y = this.level;
       const mat = water.material as THREE.ShaderMaterial;
-      if (mat.uniforms?.size) mat.uniforms.size.value = 2.2;
-      // Keep shoreline terrain visible: water draws first, writes depth lightly
+      if (mat.uniforms?.size) mat.uniforms.size.value = 2.0;
       mat.depthWrite = false;
       water.renderOrder = -1;
+      mat.transparent = true;
+
+      // Controlled reflection boost — avoid white blowout under ACES/SwiftShader
+      if (mat.fragmentShader) {
+        mat.fragmentShader = mat.fragmentShader
+          .replace(
+            'vec3 reflectionSample = vec3( texture2D( mirrorSampler, mirrorCoord.xy / mirrorCoord.w + distortion ) );',
+            `vec3 reflectionSample = vec3( texture2D( mirrorSampler, mirrorCoord.xy / mirrorCoord.w + distortion ) );
+             // Soft floor so empty mirror isn't black; keep below sun white
+             reflectionSample = clamp( reflectionSample, vec3( 0.05 ), vec3( 0.85 ) );
+             reflectionSample = mix( reflectionSample, waterColor * 1.4, 0.18 );`,
+          )
+          .replace(
+            'vec3 albedo = mix( ( sunColor * diffuseLight * 0.3 + scatter ) * getShadowMask(), ( vec3( 0.1 ) + reflectionSample * 0.9 + reflectionSample * specularLight ), reflectance);',
+            `vec3 albedo = mix(
+               ( sunColor * diffuseLight * 0.35 + scatter * 1.15 ) * getShadowMask(),
+               ( waterColor * 0.35 + reflectionSample * 0.95 + specularLight * sunColor * 0.55 ),
+               clamp( reflectance * 1.15 + 0.08, 0.0, 0.92 )
+             );
+             albedo = clamp( albedo, vec3( 0.04, 0.1, 0.12 ), vec3( 0.75, 0.88, 0.95 ) );
+             albedo += specularLight * sunColor * 0.22;`,
+          );
+        mat.needsUpdate = true;
+      }
+
       this.waterObj = water;
       this.mesh = water;
       this.mesh.receiveShadow = true;
@@ -119,7 +144,7 @@ export class Water {
     const uniforms = {
       uTime: { value: 0 },
       uDeep: { value: new THREE.Color(0x061820) },
-      uShallow: { value: new THREE.Color(0x0e4a55) },
+      uShallow: { value: new THREE.Color(0x1a6a78) },
       uSky: { value: new THREE.Color(0x6a9ab0) },
     };
     this.fallbackUniforms = uniforms;
@@ -159,11 +184,11 @@ export class Water {
           ));
           vec3 V = normalize(vView);
           float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-          vec3 col = mix(uDeep, uShallow, 0.4);
-          col = mix(col, uSky, fres * 0.65);
-          float sparkle = pow(max(0.0, sin(vUv.x * 90.0 + uTime) * sin(vUv.y * 70.0 - uTime)), 10.0) * 0.2;
+          vec3 col = mix(uDeep, uShallow, 0.45);
+          col = mix(col, uSky, fres * 0.7);
+          float sparkle = pow(max(0.0, sin(vUv.x * 90.0 + uTime) * sin(vUv.y * 70.0 - uTime)), 10.0) * 0.25;
           col += sparkle;
-          gl_FragColor = vec4(col, 0.9);
+          gl_FragColor = vec4(col, 0.95);
         }
       `,
     });
