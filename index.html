@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="description" content="HELI STRIKE — cinematic free-flight helicopter mini-sim in the browser" />
+    <title>HELI STRIKE</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game-canvas"></canvas>
+
+      <!-- Title / Attract -->
+      <div id="title-screen" class="overlay-screen active">
+        <div class="title-atmosphere"></div>
+        <div class="title-content">
+          <p class="title-eyebrow">TACTICAL AVIATION SIM</p>
+          <h1 class="brand">HELI STRIKE</h1>
+          <p class="title-tagline">Thread the rings. Own the sky.</p>
+          <div class="title-actions">
+            <button id="btn-enter" class="btn-primary" type="button">ENTER FLIGHT</button>
+            <button id="btn-briefing" class="btn-ghost" type="button">BRIEFING</button>
+          </div>
+          <p class="title-hint desktop-only">Desktop recommended · Pointer lock for cyclic</p>
+          <p class="title-hint mobile-only">Touch: drag to look · on-screen collective</p>
+        </div>
+        <div class="title-best" id="best-time-display"></div>
+      </div>
+
+      <!-- Briefing -->
+      <div id="briefing-screen" class="overlay-screen">
+        <div class="panel-glass briefing-panel">
+          <h2>MISSION BRIEFING</h2>
+          <p>
+            Navigate the coastal island course. Pass through glowing checkpoint rings
+            <strong>in order</strong>, then land on the pad for a time bonus.
+          </p>
+          <ul class="brief-list">
+            <li><span>OBJECTIVE</span> Clear all rings · land on pad</li>
+            <li><span>ASSIST</span> Arcade (default) or Realistic</li>
+            <li><span>CAMERA</span> Chase · Cockpit · Orbit — press C</li>
+          </ul>
+          <div class="brief-actions">
+            <button id="btn-brief-fly" class="btn-primary" type="button">ENTER FLIGHT</button>
+            <button id="btn-brief-back" class="btn-ghost" type="button">BACK</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls help -->
+      <div id="controls-overlay" class="overlay-screen">
+        <div class="panel-glass controls-panel">
+          <h2>CONTROLS</h2>
+          <div class="controls-grid">
+            <div>
+              <h3>FLIGHT</h3>
+              <p><kbd>W</kbd>/<kbd>S</kbd> Collective up / down</p>
+              <p><kbd>A</kbd>/<kbd>D</kbd> Pedals (yaw)</p>
+              <p><kbd>Mouse</kbd> Cyclic (pointer lock)</p>
+              <p><kbd>Shift</kbd> Boost collective</p>
+              <p><kbd>Space</kbd> Auto-level assist</p>
+            </div>
+            <div>
+              <h3>SYSTEM</h3>
+              <p><kbd>C</kbd> Cycle camera</p>
+              <p><kbd>V</kbd> Arcade / Realistic</p>
+              <p><kbd>P</kbd> Pause</p>
+              <p><kbd>R</kbd> Reset</p>
+              <p><kbd>H</kbd> / <kbd>Esc</kbd> Help / unlock</p>
+            </div>
+            <div>
+              <h3>GAMEPAD</h3>
+              <p>Left stick — cyclic</p>
+              <p>Triggers — collective</p>
+              <p>Bumpers — yaw</p>
+              <p>A / Cross — auto-level</p>
+            </div>
+          </div>
+          <button id="btn-controls-close" class="btn-primary" type="button">CLOSE</button>
+        </div>
+      </div>
+
+      <!-- Pause -->
+      <div id="pause-screen" class="overlay-screen">
+        <div class="panel-glass pause-panel">
+          <h2>PAUSED</h2>
+          <div class="pause-actions">
+            <button id="btn-resume" class="btn-primary" type="button">RESUME</button>
+            <button id="btn-pause-controls" class="btn-ghost" type="button">CONTROLS</button>
+            <button id="btn-pause-reset" class="btn-ghost" type="button">RESET</button>
+            <button id="btn-pause-title" class="btn-ghost" type="button">TITLE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mission complete -->
+      <div id="complete-screen" class="overlay-screen">
+        <div class="panel-glass result-panel">
+          <h2>MISSION COMPLETE</h2>
+          <p class="result-time" id="complete-time">00:00.0</p>
+          <p class="result-sub" id="complete-sub">Course cleared</p>
+          <div class="result-actions">
+            <button id="btn-complete-again" class="btn-primary" type="button">FLY AGAIN</button>
+            <button id="btn-complete-title" class="btn-ghost" type="button">TITLE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Crash -->
+      <div id="crash-screen" class="overlay-screen">
+        <div class="panel-glass result-panel crash">
+          <h2>AIRFRAME LOST</h2>
+          <p class="result-sub">Hard contact exceeded structural limits</p>
+          <div class="result-actions">
+            <button id="btn-crash-reset" class="btn-primary" type="button">RESET</button>
+            <button id="btn-crash-title" class="btn-ghost" type="button">TITLE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- In-flight HUD -->
+      <div id="hud" class="hud hidden">
+        <div class="hud-top">
+          <div class="hud-block">
+            <span class="hud-label">IAS</span>
+            <span class="hud-value" id="hud-airspeed">0</span>
+            <span class="hud-unit">KTS</span>
+          </div>
+          <div class="hud-block center">
+            <span class="hud-label">HDG</span>
+            <div class="heading-tape" id="heading-tape">
+              <div class="heading-track" id="heading-track"></div>
+            </div>
+          </div>
+          <div class="hud-block right">
+            <span class="hud-label">ALT</span>
+            <span class="hud-value" id="hud-alt">0</span>
+            <span class="hud-unit">FT AGL</span>
+          </div>
+        </div>
+
+        <div class="hud-center">
+          <div class="attitude" id="attitude">
+            <div class="attitude-sky"></div>
+            <div class="attitude-ground"></div>
+            <div class="attitude-horizon" id="attitude-horizon"></div>
+            <div class="attitude-aircraft"></div>
+          </div>
+        </div>
+
+        <div class="hud-mid">
+          <div class="hud-block">
+            <span class="hud-label">VS</span>
+            <span class="hud-value" id="hud-vs">0</span>
+            <span class="hud-unit">FPM</span>
+          </div>
+          <div class="hud-block">
+            <span class="hud-label">RPM</span>
+            <span class="hud-value" id="hud-rpm">0</span>
+            <span class="hud-unit">%</span>
+          </div>
+          <div class="hud-block">
+            <span class="hud-label">RING</span>
+            <span class="hud-value" id="hud-ring">0/0</span>
+          </div>
+          <div class="hud-block">
+            <span class="hud-label">TIME</span>
+            <span class="hud-value" id="hud-timer">00:00.0</span>
+          </div>
+        </div>
+
+        <div class="hud-warnings" id="hud-warnings"></div>
+
+        <div class="hud-bottom">
+          <div class="hud-mode" id="hud-mode">ARCADE</div>
+          <div class="hud-cam" id="hud-cam">CHASE</div>
+          <div class="hud-msl">MSL <span id="hud-msl">0</span></div>
+        </div>
+
+        <div class="crosshair" id="crosshair"></div>
+      </div>
+
+      <!-- Touch controls -->
+      <div id="touch-controls" class="touch-controls hidden">
+        <div class="touch-collective">
+          <button type="button" id="touch-up" aria-label="Collective up">▲</button>
+          <button type="button" id="touch-down" aria-label="Collective down">▼</button>
+        </div>
+        <div class="touch-yaw">
+          <button type="button" id="touch-left" aria-label="Yaw left">◀</button>
+          <button type="button" id="touch-right" aria-label="Yaw right">▶</button>
+        </div>
+        <button type="button" id="touch-pause" class="touch-pause" aria-label="Pause">❚❚</button>
+      </div>
+
+      <button id="btn-help" class="btn-help hidden" type="button" title="Controls (H)">?</button>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
