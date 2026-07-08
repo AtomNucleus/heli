@@ -20,29 +20,38 @@ const grassVertex = /* glsl */ `
     // Instance base position (translation column) — instanceMatrix injected by Three.js
     vec3 base = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
 
-    // Ambient wind
+    // Instance scales — wash bend is authored in world units, then converted to local
+    // so large scaleY/XZ blades don't explode when offset is applied before instanceMatrix.
+    float sx = max(length(instanceMatrix[0].xyz), 0.01);
+    float sy = max(length(instanceMatrix[1].xyz), 0.01);
+    float sz = max(length(instanceMatrix[2].xyz), 0.01);
+
+    // Ambient wind (small local sway — already scale-relative by design)
     float wind = sin(uTime * 1.4 + base.x * 0.35 + base.z * 0.28) * 0.22
                + cos(uTime * 0.9 + base.z * 0.5) * 0.12;
     local.x += wind * tip;
     local.z += cos(uTime * 1.1 + base.x * 0.4) * 0.14 * tip;
 
-    // Rotor wash — strong flatten/part within ~16m (clamped so stills don't explode)
+    // Rotor wash — flatten/part within ~16m; hard-clamp tip bend in world units
     vec2 toHeli = base.xz - uHeliPos.xz;
     float dist = length(toHeli);
     float washR = 16.0;
     float falloff = 1.0 - smoothstep(0.0, washR, dist);
     falloff *= falloff;
-    float wash = min(uWashStrength * falloff, 2.8);
+    float wash = min(uWashStrength, 1.2) * falloff;
+    wash = min(wash, 1.2);
     if (wash > 0.001 && dist > 0.05) {
       vec2 dir = toHeli / max(dist, 0.001);
-      float bend = wash * tip * 1.65;
-      local.x += dir.x * bend;
-      local.z += dir.y * bend;
-      local.y -= wash * tip * 0.95;
+      // World-space tip displacement capped ~0.75m, then / scale → local offset
+      float bendWorld = min(wash * tip * 0.85, 0.75);
+      float flattenWorld = min(wash * tip * 0.45, 0.55);
+      local.x += (dir.x * bendWorld) / sx;
+      local.z += (dir.y * bendWorld) / sz;
+      local.y -= flattenWorld / sy;
     }
 
     vColor = instanceColorAttr;
-    vShade = tip * 0.32 + wash * 0.22 + (fract(base.x * 12.7 + base.z * 9.3) - 0.5) * 0.1;
+    vShade = tip * 0.32 + wash * 0.18 + (fract(base.x * 12.7 + base.z * 9.3) - 0.5) * 0.1;
 
     vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(local, 1.0);
     gl_Position = projectionMatrix * mvPosition;
@@ -114,9 +123,9 @@ export class Grass {
       if (Math.hypot(x - 8, z - 5) < 13) continue;
       if (Math.hypot(x + 55, z - 40) < 12) continue;
 
-      const scaleY = 1.2 + Math.random() * 1.15;
-      // Dense clump width — not sparse neon sticks
-      const scaleXZ = 0.85 + Math.random() * 0.4;
+      // Keep instance scale moderate (0.55–1.15) so wash offsets stay predictable
+      const scaleY = 0.55 + Math.random() * 0.6;
+      const scaleXZ = 0.55 + Math.random() * 0.35;
       dummy.position.set(x, h + scaleY * 0.48, z);
       dummy.rotation.set(0, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.14);
       dummy.scale.set(scaleXZ, scaleY, scaleXZ);
@@ -217,8 +226,8 @@ export class Grass {
   ) {
     this.uniforms.uTime.value += dt;
     this.uniforms.uHeliPos.value.copy(heliPos);
-    // Strong wash when within ~16m and low AGL — blades clearly flatten
+    // Wash when within ~16m and low AGL — clamped so tip bend never explodes
     const heightFactor = THREE.MathUtils.clamp(1 - agl / 16, 0, 1);
-    this.uniforms.uWashStrength.value = rpm * rpm * heightFactor * 3.8;
+    this.uniforms.uWashStrength.value = Math.min(rpm * rpm * heightFactor * 1.35, 1.2);
   }
 }

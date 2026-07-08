@@ -207,6 +207,8 @@ export class Game {
     this.elapsed += dt;
 
     this.world.update(dt);
+    // Keep water sun synced (mirror specular matches dusk directional)
+    this.world.water.setSunDirection(this.sun);
 
     if (this.phase === 'title' || this.phase === 'briefing') {
       // Attract: parked heli, slow orbit — still drive grass/gravel lightly

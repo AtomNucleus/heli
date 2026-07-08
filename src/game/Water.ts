@@ -95,47 +95,51 @@ export class Water {
         waterNormals: normals,
         sunDirection: options?.sunDirection?.clone() ?? new THREE.Vector3(0.55, 0.85, 0.25).normalize(),
         sunColor: 0xffd8b0,
-        // Deep teal — dark reflective coastal water
-        waterColor: 0x082830,
-        distortionScale: 2.5,
+        // Deep teal — reflective coastal water, not black
+        waterColor: 0x0c3a48,
+        distortionScale: 3.2,
         fog: options?.fog ?? true,
         alpha: 1.0,
       });
       water.rotation.x = -Math.PI / 2;
       water.position.y = this.level;
+      water.visible = true;
       const mat = water.material as THREE.ShaderMaterial;
-      if (mat.uniforms?.size) mat.uniforms.size.value = 2.2;
-      if (mat.uniforms?.waterColor) mat.uniforms.waterColor.value.set(0x0a3040);
+      if (mat.uniforms?.size) mat.uniforms.size.value = 2.4;
+      if (mat.uniforms?.waterColor) mat.uniforms.waterColor.value.set(0x0c3a48);
       if (mat.uniforms?.sunColor) mat.uniforms.sunColor.value.set(0xffd8b0);
+      if (mat.uniforms?.distortionScale) mat.uniforms.distortionScale.value = 3.2;
       // Write depth so submerged shelf doesn't punch through as milky sand
       mat.depthWrite = true;
       mat.transparent = false;
       water.renderOrder = -1;
 
-      // Soft reflection — crush sky/terrain mirrors so body stays deep teal
+      // Soft reflection mix — readable sky/terrain mirror without milky white flood
       if (mat.fragmentShader) {
         mat.fragmentShader = mat.fragmentShader
           .replace(
             'vec3 reflectionSample = vec3( texture2D( mirrorSampler, mirrorCoord.xy / mirrorCoord.w + distortion ) );',
             `vec3 reflectionSample = vec3( texture2D( mirrorSampler, mirrorCoord.xy / mirrorCoord.w + distortion ) );
-             reflectionSample *= 0.28;
-             reflectionSample = mix( reflectionSample, waterColor, 0.62 );`,
+             // Soften bright sky without crushing all mirror detail
+             reflectionSample = mix( reflectionSample, waterColor, 0.18 );
+             reflectionSample *= 0.85;`,
           )
           .replace(
             'vec3 albedo = mix( ( sunColor * diffuseLight * 0.3 + scatter ) * getShadowMask(), ( vec3( 0.1 ) + reflectionSample * 0.9 + reflectionSample * specularLight ), reflectance);',
             `vec3 albedo = mix(
-               waterColor * ( 0.7 + diffuseLight * 0.15 ),
-               ( waterColor * 0.92 + reflectionSample * 0.18 + specularLight * sunColor * 0.12 ),
-               clamp( reflectance * 0.5, 0.0, 0.55 )
+               ( waterColor * ( 0.45 + diffuseLight * 0.4 ) + scatter * 0.55 ) * getShadowMask(),
+               ( waterColor * 0.22 + reflectionSample * 0.88 + specularLight * sunColor * 0.45 ),
+               clamp( reflectance * 0.95, 0.18, 0.85 )
              );
-             albedo = mix( albedo, waterColor, 0.55 );
-             albedo += specularLight * sunColor * 0.04;`,
+             albedo = mix( albedo, waterColor, 0.12 );
+             albedo += specularLight * sunColor * 0.1;`,
           );
         mat.needsUpdate = true;
       }
 
       this.waterObj = water;
       this.mesh = water;
+      this.mesh.visible = true;
       this.mesh.receiveShadow = true;
     } catch {
       this.mesh = this.buildFallback(size);
@@ -145,9 +149,9 @@ export class Water {
   private buildFallback(size: number): THREE.Mesh {
     const uniforms = {
       uTime: { value: 0 },
-      uDeep: { value: new THREE.Color(0x061820) },
-      uShallow: { value: new THREE.Color(0x0e4a55) },
-      uSky: { value: new THREE.Color(0x4a7088) },
+      uDeep: { value: new THREE.Color(0x0c3a48) },
+      uShallow: { value: new THREE.Color(0x1a5a68) },
+      uSky: { value: new THREE.Color(0x6a90a8) },
     };
     this.fallbackUniforms = uniforms;
     const mat = new THREE.ShaderMaterial({
@@ -220,8 +224,10 @@ export class Water {
   update(t: number) {
     this.clock = t;
     if (this.waterObj) {
+      this.waterObj.visible = true;
       const mat = this.waterObj.material as THREE.ShaderMaterial;
-      mat.uniforms['time'].value = t;
+      // Drive Three Water time uniform so normals + mirror stay live each frame
+      if (mat.uniforms['time']) mat.uniforms['time'].value = t * 0.5;
     } else if (this.fallbackUniforms) {
       this.fallbackUniforms.uTime.value = t;
     }

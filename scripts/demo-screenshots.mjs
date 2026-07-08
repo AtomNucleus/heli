@@ -3,9 +3,9 @@
  * Requires: npm run dev on http://127.0.0.1:5173, google-chrome, playwright-core.
  *
  * Outputs:
- *   heli-final-title.png  — title island
- *   heli-final-pad.png    — low hover on pad (pebble gravel + scatter)
- *   heli-final-water.png  — coastal dark reflective water
+ *   heli-ship-title.png  — title island
+ *   heli-ship-pad.png    — low hover on pad (pebble gravel + scatter)
+ *   heli-ship-water.png  — coastal reflective water (no giant grass)
  */
 import { chromium } from 'playwright-core';
 import { mkdir } from 'node:fs/promises';
@@ -163,7 +163,7 @@ async function main() {
     }
   });
   await sleep(600);
-  const titlePath = path.join(OUT, 'heli-final-title.png');
+  const titlePath = path.join(OUT, 'heli-ship-title.png');
   await page.screenshot({ path: titlePath, type: 'png', timeout: 60000 });
   console.log('Wrote', titlePath);
 
@@ -190,21 +190,22 @@ async function main() {
     agl: 0.25,
     onGround: true,
     heading: 0.4,
-    washSteps: 70,
-    camX: 17.5,
-    camY: padH + 5.8,
-    camZ: 14.8,
-    lookX: 9.2,
-    lookY: padH + 0.35,
-    lookZ: 6.0,
-    fov: 44,
+    washSteps: 90,
+    // Pull back / higher so dense apron pebbles + scatter read at chase distance
+    camX: 19.5,
+    camY: padH + 7.2,
+    camZ: 17.2,
+    lookX: 9.5,
+    lookY: padH + 0.2,
+    lookZ: 6.2,
+    fov: 42,
   };
   await poseClean(page, gravelPose);
   for (let i = 0; i < 8; i++) {
     await poseClean(page, { ...gravelPose, washSteps: 8 });
     await sleep(30);
   }
-  const padPath = path.join(OUT, 'heli-final-pad.png');
+  const padPath = path.join(OUT, 'heli-ship-pad.png');
   await page.screenshot({ path: padPath, type: 'png', timeout: 60000 });
   console.log('Wrote', padPath);
 
@@ -214,6 +215,8 @@ async function main() {
     g.postfx.enabled = false;
     g.hud?.hide?.();
     g.world.gravel.reset();
+    // Hide course rings — first ring sits edge-on near old camera and reads as a giant green arc
+    g.world.rings.group.visible = false;
     ['title-screen', 'briefing-screen', 'pause-screen', 'complete-screen', 'crash-screen'].forEach(
       (id) => document.getElementById(id)?.classList.remove('active'),
     );
@@ -230,13 +233,16 @@ async function main() {
     g.heli.group.rotation.set(0.04, Math.PI * 0.85, 0);
     g.flight.state.quaternion.copy(g.heli.group.quaternion);
     g.heli.update(1 / 60, 0.65, 3.2, 8, false);
+    // Keep grass wash modest so coastal still doesn't silhouette bent blades
+    g.world.grass.mesh.material.uniforms.uWashStrength.value = 0;
 
-    // Over coastal water looking at dry island — camera above open water south of pad
-    g.cameraRig.camera.position.set(18, 7.5, -42);
-    g.cameraRig.camera.lookAt(8, 3.0, 8);
-    g.cameraRig.camera.fov = 50;
+    // Over coastal water looking at dry island — SE of pad, clear of ring 0 at (25,-30)
+    g.cameraRig.camera.position.set(-6, 9.5, -48);
+    g.cameraRig.camera.lookAt(10, 3.2, 6);
+    g.cameraRig.camera.fov = 48;
     g.cameraRig.camera.updateProjectionMatrix();
     g.world.water.setSunDirection(g.sun);
+    g.world.water.mesh.visible = true;
 
     for (let i = 0; i < 60; i++) g.world.update(1 / 30);
     for (let i = 0; i < 16; i++) {
@@ -247,15 +253,16 @@ async function main() {
       hx,
       hz,
       hh,
-      oceanH: g.world.getHeight(18, -42),
-      midH: g.world.getHeight(12, -20),
+      oceanH: g.world.getHeight(-6, -48),
+      midH: g.world.getHeight(4, -20),
       padH: g.world.getHeight(8, 5),
       waterY: g.world.water.level,
-      cam: [18, 7.5, -42],
+      cam: [-6, 9.5, -48],
+      wash: g.world.grass.mesh.material.uniforms.uWashStrength.value,
     };
   });
   await sleep(400);
-  const waterPath = path.join(OUT, 'heli-final-water.png');
+  const waterPath = path.join(OUT, 'heli-ship-water.png');
   await page.screenshot({ path: waterPath, type: 'png', timeout: 60000 });
   console.log('Wrote', waterPath);
 
@@ -266,6 +273,7 @@ async function main() {
     const g = window.__game || window.__HELI_DEBUG;
     g.postfx.enabled = true;
     g.hud?.show?.();
+    g.world.rings.group.visible = true;
   });
 
   await browser.close();
