@@ -38,6 +38,15 @@ export class Game {
   private animId = 0;
   /** Shared sun direction (sky + directional light + water). */
   readonly sun = new THREE.Vector3();
+  private sunLight!: THREE.DirectionalLight;
+  private rimLight!: THREE.DirectionalLight;
+  private rimTarget = new THREE.Object3D();
+  private hemiLight!: THREE.HemisphereLight;
+  private fillLight!: THREE.DirectionalLight;
+  private ambientLight!: THREE.AmbientLight;
+  private sky!: Sky;
+  private readonly _sunWorld = new THREE.Vector3();
+  private readonly _sunNdc = new THREE.Vector3();
 
   onPhaseChange?: (phase: GamePhase) => void;
 
@@ -52,16 +61,18 @@ export class Game {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.08;
+    // Balance: readable dusk without white-blown sun
+    this.renderer.toneMappingExposure = 0.92;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    // Cinematic dusk atmosphere — keep density so sky isn't washed grey
-    this.scene.fog = new THREE.FogExp2(0x071018, 0.0038);
-    this.scene.background = new THREE.Color(0x071018);
+    // Teal dusk fog — light enough that the island stays readable
+    const fogColor = new THREE.Color(0x1a4858);
+    this.scene.fog = new THREE.FogExp2(fogColor.getHex(), 0.0025);
+    this.scene.background = fogColor.clone();
 
     this.setupLighting();
-    const sky = this.setupSky();
-    const envMap = this.buildEnvMap(sky);
+    this.sky = this.setupSky();
+    const envMap = this.buildEnvMap(this.sky);
 
     // Match water sun to directional light direction
     const sunDir = this.sun.clone().normalize();
@@ -88,42 +99,57 @@ export class Game {
   }
 
   private setupLighting() {
-    const hemi = new THREE.HemisphereLight(0x8ec8e0, 0x1a2a18, 0.6);
-    this.scene.add(hemi);
+    // Strong fill so foreground isn't crushed; dusk mood via warm sun + teal fog
+    this.hemiLight = new THREE.HemisphereLight(0xb0e0f5, 0x2a4030, 1.1);
+    this.scene.add(this.hemiLight);
 
-    // Dusk sun — matched to sky + water specular
-    this.sun.setFromSphericalCoords(1, THREE.MathUtils.degToRad(78), THREE.MathUtils.degToRad(158));
+    // Lower sun elevation for longer orange rim (phi closer to horizon)
+    this.sun.setFromSphericalCoords(1, THREE.MathUtils.degToRad(87), THREE.MathUtils.degToRad(155));
 
-    const sun = new THREE.DirectionalLight(0xfff0d8, 1.75);
-    sun.position.copy(this.sun).multiplyScalar(160);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.near = 10;
-    sun.shadow.camera.far = 400;
-    sun.shadow.camera.left = -120;
-    sun.shadow.camera.right = 120;
-    sun.shadow.camera.top = 120;
-    sun.shadow.camera.bottom = -120;
-    sun.shadow.bias = -0.0002;
-    this.scene.add(sun);
+    this.sunLight = new THREE.DirectionalLight(0xffa868, 1.05);
+    this.sunLight.position.copy(this.sun).multiplyScalar(160);
+    this.sunLight.castShadow = true;
+    this.sunLight.shadow.mapSize.set(2048, 2048);
+    this.sunLight.shadow.camera.near = 10;
+    this.sunLight.shadow.camera.far = 400;
+    this.sunLight.shadow.camera.left = -120;
+    this.sunLight.shadow.camera.right = 120;
+    this.sunLight.shadow.camera.top = 120;
+    this.sunLight.shadow.camera.bottom = -120;
+    this.sunLight.shadow.bias = -0.00015;
+    this.sunLight.shadow.normalBias = 0.025;
+    this.scene.add(this.sunLight);
 
-    const fill = new THREE.DirectionalLight(0x3a6a80, 0.28);
-    fill.position.set(-40, 30, -60);
-    this.scene.add(fill);
+    this.fillLight = new THREE.DirectionalLight(0x5aa0b8, 0.72);
+    this.fillLight.position.set(-50, 40, -40);
+    this.scene.add(this.fillLight);
 
-    const ambient = new THREE.AmbientLight(0x102018, 0.18);
-    this.scene.add(ambient);
+    // Cool bounce from opposite side softens shadow wells
+    const bounce = new THREE.DirectionalLight(0x3a6878, 0.35);
+    bounce.position.set(30, 20, 50);
+    this.scene.add(bounce);
+
+    this.ambientLight = new THREE.AmbientLight(0x244840, 0.45);
+    this.scene.add(this.ambientLight);
+
+    // Warm orange rim from sun direction — tracks heli each frame
+    this.rimLight = new THREE.DirectionalLight(0xff9048, 1.15);
+    this.rimLight.castShadow = false;
+    this.rimTarget.position.set(0, 0, 0);
+    this.scene.add(this.rimTarget);
+    this.rimLight.target = this.rimTarget;
+    this.scene.add(this.rimLight);
   }
 
   private setupSky(): Sky {
     const sky = new Sky();
     sky.scale.setScalar(4500);
     const u = sky.material.uniforms;
-    u['turbidity'].value = 4.2;
-    u['rayleigh'].value = 1.9;
-    u['mieCoefficient'].value = 0.004;
-    u['mieDirectionalG'].value = 0.76;
-    // this.sun already set in setupLighting to match directional light
+    // Cleaner gradient — low turbidity/mie keeps sun warm orange, not white disc
+    u['turbidity'].value = 2.2;
+    u['rayleigh'].value = 2.6;
+    u['mieCoefficient'].value = 0.0018;
+    u['mieDirectionalG'].value = 0.62;
     u['sunPosition'].value.copy(this.sun);
     this.scene.add(sky);
     return sky;
@@ -202,6 +228,34 @@ export class Game {
     this.heli.group.quaternion.copy(this.flight.state.quaternion);
   }
 
+  private updateRimLight() {
+    const heliPos = this.flight.state.position;
+    this.rimTarget.position.copy(heliPos);
+    // Place rim light along sun direction so warm edge light reads on the airframe
+    this.rimLight.position.copy(heliPos).addScaledVector(this.sun, 40);
+    this.rimLight.target.updateMatrixWorld();
+  }
+
+  private updateSunGlare() {
+    // Project sun far along direction into NDC for screen-space glare
+    this._sunWorld.copy(this.cameraRig.camera.position).addScaledVector(this.sun, 800);
+    this._sunNdc.copy(this._sunWorld).project(this.cameraRig.camera);
+    const visible = this._sunNdc.z < 1 ? 1 : 0;
+    const sx = this._sunNdc.x * 0.5 + 0.5;
+    const sy = this._sunNdc.y * 0.5 + 0.5;
+    // Fade when near/off screen edges
+    const edge =
+      THREE.MathUtils.clamp(1 - Math.abs(this._sunNdc.x), 0, 1) *
+      THREE.MathUtils.clamp(1 - Math.abs(this._sunNdc.y), 0, 1);
+    this.postfx.setSunScreenPos(sx, sy, visible * edge);
+  }
+
+  private isOverWater(): boolean {
+    const p = this.flight.state.position;
+    const h = this.world.getHeight(p.x, p.z);
+    return h < this.world.waterLevel + 0.6;
+  }
+
   private frame() {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.elapsed += dt;
@@ -209,11 +263,12 @@ export class Game {
     this.world.update(dt);
     // Keep water sun synced (mirror specular matches dusk directional)
     this.world.water.setSunDirection(this.sun);
+    this.updateRimLight();
 
     if (this.phase === 'title' || this.phase === 'briefing') {
       // Attract: parked heli, slow orbit — still drive grass/gravel lightly
       this.flight.state.rpm = 0.15 + Math.sin(this.elapsed * 0.5) * 0.02;
-      this.heli.update(dt, this.flight.state.rpm, 1.2, 0, true);
+      this.heli.update(dt, this.flight.state.rpm, 1.2, 0, true, false, false);
       this.syncHeliFromFlight();
       this.world.updateEffects(
         this.flight.state.position,
@@ -276,7 +331,16 @@ export class Game {
     this.syncHeliFromFlight();
 
     const speed = this.flight.getAirspeed();
-    this.heli.update(dt, this.flight.state.rpm, this.flight.state.agl, speed, this.flight.state.onGround);
+    const overWater = this.isOverWater();
+    this.heli.update(
+      dt,
+      this.flight.state.rpm,
+      this.flight.state.agl,
+      speed,
+      this.flight.state.onGround,
+      raw.boost,
+      overWater,
+    );
     this.world.updateEffects(
       this.flight.state.position,
       this.flight.state.rpm,
@@ -400,6 +464,7 @@ export class Game {
   }
 
   private render() {
+    this.updateSunGlare();
     // Keep postfx camera in sync — RenderPass holds camera ref
     if (this.postfx.enabled) {
       this.postfx.render();

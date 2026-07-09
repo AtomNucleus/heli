@@ -94,10 +94,10 @@ export class Water {
         textureHeight: 512,
         waterNormals: normals,
         sunDirection: options?.sunDirection?.clone() ?? new THREE.Vector3(0.55, 0.85, 0.25).normalize(),
-        sunColor: 0xffd8b0,
-        // Deep teal — reflective coastal water, not black
-        waterColor: 0x0c3a48,
-        distortionScale: 3.2,
+        sunColor: 0xffe0c0,
+        // Readable coastal teal — not crushed black under dusk
+        waterColor: 0x145868,
+        distortionScale: 3.4,
         fog: options?.fog ?? true,
         alpha: 1.0,
       });
@@ -105,34 +105,41 @@ export class Water {
       water.position.y = this.level;
       water.visible = true;
       const mat = water.material as THREE.ShaderMaterial;
-      if (mat.uniforms?.size) mat.uniforms.size.value = 2.4;
-      if (mat.uniforms?.waterColor) mat.uniforms.waterColor.value.set(0x0c3a48);
-      if (mat.uniforms?.sunColor) mat.uniforms.sunColor.value.set(0xffd8b0);
-      if (mat.uniforms?.distortionScale) mat.uniforms.distortionScale.value = 3.2;
+      if (mat.uniforms?.size) mat.uniforms.size.value = 2.6;
+      if (mat.uniforms?.waterColor) mat.uniforms.waterColor.value.set(0x145868);
+      if (mat.uniforms?.sunColor) mat.uniforms.sunColor.value.set(0xffe0c0);
+      if (mat.uniforms?.distortionScale) mat.uniforms.distortionScale.value = 3.4;
       // Write depth so submerged shelf doesn't punch through as milky sand
       mat.depthWrite = true;
       mat.transparent = false;
       water.renderOrder = -1;
 
-      // Soft reflection mix — readable sky/terrain mirror without milky white flood
+      // Soft reflection + low-poly wave highlights + sun specular streak
       if (mat.fragmentShader) {
         mat.fragmentShader = mat.fragmentShader
           .replace(
             'vec3 reflectionSample = vec3( texture2D( mirrorSampler, mirrorCoord.xy / mirrorCoord.w + distortion ) );',
             `vec3 reflectionSample = vec3( texture2D( mirrorSampler, mirrorCoord.xy / mirrorCoord.w + distortion ) );
              // Soften bright sky without crushing all mirror detail
-             reflectionSample = mix( reflectionSample, waterColor, 0.18 );
-             reflectionSample *= 0.85;`,
+             reflectionSample = mix( reflectionSample, waterColor, 0.16 );
+             reflectionSample *= 0.88;`,
           )
           .replace(
             'vec3 albedo = mix( ( sunColor * diffuseLight * 0.3 + scatter ) * getShadowMask(), ( vec3( 0.1 ) + reflectionSample * 0.9 + reflectionSample * specularLight ), reflectance);',
             `vec3 albedo = mix(
                ( waterColor * ( 0.45 + diffuseLight * 0.4 ) + scatter * 0.55 ) * getShadowMask(),
-               ( waterColor * 0.22 + reflectionSample * 0.88 + specularLight * sunColor * 0.45 ),
+               ( waterColor * 0.2 + reflectionSample * 0.9 + specularLight * sunColor * 0.55 ),
                clamp( reflectance * 0.95, 0.18, 0.85 )
              );
-             albedo = mix( albedo, waterColor, 0.12 );
-             albedo += specularLight * sunColor * 0.1;`,
+             albedo = mix( albedo, waterColor, 0.1 );
+             // Soft sun reflection streak
+             albedo += specularLight * sunColor * 0.18;
+             // Low-poly wave highlight sparkles (stylized, not noise soup)
+             float waveHi = pow( max( 0.0, sin( worldPosition.x * 0.35 + time * 1.1 )
+               * sin( worldPosition.z * 0.28 - time * 0.85 ) ), 6.0 );
+             albedo += sunColor * waveHi * 0.12;
+             float crest = pow( max( 0.0, surfaceNormal.y ), 4.0 );
+             albedo += vec3( 0.55, 0.75, 0.8 ) * crest * 0.08;`,
           );
         mat.needsUpdate = true;
       }

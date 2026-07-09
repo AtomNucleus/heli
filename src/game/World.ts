@@ -4,6 +4,9 @@ import { Water } from './Water';
 import { Grass } from './Grass';
 import { Gravel } from './Gravel';
 import { Rings, buildCourseRings } from './Rings';
+import { DetailProps } from './DetailProps';
+import { WashDecals } from './WashDecals';
+import { ShoreFoam } from './ShoreFoam';
 
 export class World {
   readonly group = new THREE.Group();
@@ -12,6 +15,9 @@ export class World {
   readonly grass: Grass;
   readonly gravel: Gravel;
   readonly rings: Rings;
+  readonly details: DetailProps;
+  readonly washDecals: WashDecals;
+  readonly shoreFoam: ShoreFoam;
   readonly pads: THREE.Mesh[] = [];
   readonly spawn = new THREE.Vector3(8, 6, 5);
   readonly waterLevel: number;
@@ -21,6 +27,7 @@ export class World {
   private clock = 0;
   private padMaterials: THREE.MeshStandardMaterial[] = [];
   private envMap: THREE.Texture | null = null;
+  private haze?: THREE.Mesh;
 
   constructor(options?: {
     envMap?: THREE.Texture | null;
@@ -38,6 +45,7 @@ export class World {
     this.group.add(this.terrain.mesh);
 
     this.addSkyDecor();
+    this.addHorizonHaze();
     this.trees = this.scatterTrees(420);
     this.rocks = this.scatterRocks(180);
     this.group.add(this.trees, this.rocks);
@@ -46,7 +54,16 @@ export class World {
     this.gravel = new Gravel((x, z) => this.terrain.getHeight(x, z), 6000);
     this.group.add(this.grass.mesh, this.gravel.mesh);
 
+    this.shoreFoam = new ShoreFoam((x, z) => this.terrain.getHeight(x, z), this.waterLevel);
+    this.group.add(this.shoreFoam.mesh);
+
+    this.washDecals = new WashDecals(this.waterLevel);
+    this.group.add(this.washDecals.mesh);
+
     this.buildPads();
+    this.details = new DetailProps((x, z) => this.terrain.getHeight(x, z), this.waterLevel);
+    this.group.add(this.details.group);
+
     this.rings = new Rings(buildCourseRings((x, z) => this.terrain.getHeight(x, z)));
     this.group.add(this.rings.group);
 
@@ -73,9 +90,14 @@ export class World {
   update(dt: number) {
     this.clock += dt;
     this.water.update(this.clock);
+    this.details.update(dt);
+    if (this.haze) {
+      const mat = this.haze.material as THREE.MeshBasicMaterial;
+      mat.opacity = 0.22 + Math.sin(this.clock * 0.15) * 0.03;
+    }
   }
 
-  /** Drive grass / gravel from helicopter state (also used in title attract). */
+  /** Drive grass / gravel / wash decals from helicopter state (also used in title attract). */
   updateEffects(
     heliPos: THREE.Vector3,
     rpm: number,
@@ -85,6 +107,47 @@ export class World {
   ) {
     this.grass.update(heliPos, rpm, agl, onGround, dt);
     this.gravel.update(heliPos, rpm, agl, onGround, dt);
+
+    const groundY = this.terrain.getHeight(heliPos.x, heliPos.z);
+    const overWater = groundY < this.waterLevel + 0.6;
+    this.washDecals.update(heliPos, rpm, agl, onGround, overWater, groundY, dt);
+  }
+
+  private addHorizonHaze() {
+    // Soft warm horizon band only — avoid a full disc that reads as a sky artifact
+    const warm = new THREE.Mesh(
+      new THREE.RingGeometry(200, 560, 64),
+      new THREE.MeshBasicMaterial({
+        color: 0xd09060,
+        transparent: true,
+        opacity: 0.12,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        fog: false,
+      }),
+    );
+    warm.rotation.x = -Math.PI / 2;
+    warm.position.y = 12;
+    warm.renderOrder = -2;
+    this.group.add(warm);
+
+    // Low teal ground haze (thin ring near shore distance, not a filled disc)
+    const teal = new THREE.Mesh(
+      new THREE.RingGeometry(80, 420, 64),
+      new THREE.MeshBasicMaterial({
+        color: 0x1a4858,
+        transparent: true,
+        opacity: 0.16,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        fog: false,
+      }),
+    );
+    teal.rotation.x = -Math.PI / 2;
+    teal.position.y = 3.5;
+    teal.renderOrder = -2;
+    this.haze = teal;
+    this.group.add(teal);
   }
 
   private addSkyDecor() {
