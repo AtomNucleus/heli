@@ -19,29 +19,68 @@ export class Helicopter {
   private tailDisk?: THREE.Mesh;
   private exhaust: THREE.Points;
   private wash: THREE.Points;
+  private heatShimmer: THREE.Points;
+  private boostSparks: THREE.Points;
+  private tailTrail: THREE.Points;
   private exhaustVel: Float32Array;
   private washVel: Float32Array;
+  private heatVel: Float32Array;
+  private sparkVel: Float32Array;
+  private trailPositions: THREE.Vector3[] = [];
+  private trailMax = 18;
 
   private rotorRadius = ROTOR_DIAMETER / 2;
   private rotorAngle = 0;
   private tailAngle = 0;
   private loaded = false;
+  private bodyMaterials: THREE.MeshStandardMaterial[] = [];
 
   constructor(envMap?: THREE.Texture) {
     this.buildPlaceholder();
     this.loadModel(envMap);
 
-    const exhaustData = this.buildParticles(48, 0xffaa66, 0.08);
+    const exhaustData = this.buildParticles(56, 0xffaa66, 0.09);
     this.exhaust = exhaustData.points;
     this.exhaustVel = exhaustData.velocities;
     this.exhaust.position.set(-0.15, 0.55, 1.1);
     this.group.add(this.exhaust);
 
-    const washData = this.buildParticles(72, 0xc2b280, 0.14);
+    const heatData = this.buildParticles(36, 0xff8844, 0.22);
+    this.heatShimmer = heatData.points;
+    this.heatVel = heatData.velocities;
+    (this.heatShimmer.material as THREE.PointsMaterial).opacity = 0.25;
+    this.heatShimmer.position.set(-0.1, 0.45, 1.25);
+    this.group.add(this.heatShimmer);
+
+    const sparkData = this.buildParticles(40, 0xffcc44, 0.12);
+    this.boostSparks = sparkData.points;
+    this.sparkVel = sparkData.velocities;
+    this.boostSparks.position.set(-0.1, 0.4, 1.35);
+    this.boostSparks.visible = false;
+    this.group.add(this.boostSparks);
+
+    const washData = this.buildParticles(140, 0xc2b280, 0.2);
     this.wash = washData.points;
     this.washVel = washData.velocities;
     this.wash.position.set(0, -1.0, 0);
     this.group.add(this.wash);
+
+    // Tail trail — fading points behind the boom
+    const trailGeo = new THREE.BufferGeometry();
+    trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.trailMax * 3), 3));
+    const trailMat = new THREE.PointsMaterial({
+      color: 0x88aacc,
+      size: 0.22,
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true,
+    });
+    this.tailTrail = new THREE.Points(trailGeo, trailMat);
+    this.tailTrail.frustumCulled = false;
+    // World-space trail — added to group but positions written in local space each frame
+    this.group.add(this.tailTrail);
   }
 
   /** Simple low-detail stand-in shown until the GLB finishes loading. */
@@ -101,8 +140,15 @@ export class Helicopter {
               if (std.isMeshStandardMaterial) {
                 if (envMap) {
                   std.envMap = envMap;
-                  std.envMapIntensity = 0.9;
+                  // Slightly higher metal response for stronger dusk rim read
+                  std.envMapIntensity = 1.15;
                 }
+                // Warm metal bias so orange rim light catches the airframe
+                if (std.metalness > 0.3) {
+                  std.metalness = Math.min(1, std.metalness + 0.08);
+                  std.roughness = Math.max(0.18, std.roughness - 0.05);
+                }
+                this.bodyMaterials.push(std);
                 std.needsUpdate = true;
               }
             };
@@ -199,16 +245,17 @@ export class Helicopter {
     const ctx = canvas.getContext('2d')!;
     const cx = size / 2;
     const grad = ctx.createRadialGradient(cx, cx, size * 0.05, cx, cx, cx);
-    grad.addColorStop(0, 'rgba(70,74,76,0.18)');
-    grad.addColorStop(0.55, 'rgba(60,64,66,0.42)');
-    grad.addColorStop(0.92, 'rgba(40,44,46,0.72)');
+    // Slightly more visible blur disc
+    grad.addColorStop(0, 'rgba(70,74,76,0.28)');
+    grad.addColorStop(0.55, 'rgba(60,64,66,0.55)');
+    grad.addColorStop(0.92, 'rgba(40,44,46,0.82)');
     grad.addColorStop(1, 'rgba(30,32,34,0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.arc(cx, cx, cx, 0, Math.PI * 2);
     ctx.fill();
     // Blade-streak arcs to read as motion blur.
-    ctx.strokeStyle = 'rgba(20,22,24,0.45)';
+    ctx.strokeStyle = 'rgba(20,22,24,0.55)';
     ctx.lineWidth = 3;
     for (let i = 0; i < 28; i++) {
       const a = (i / 28) * Math.PI * 2;
@@ -242,7 +289,15 @@ export class Helicopter {
     return { points: new THREE.Points(geo, matP), velocities };
   }
 
-  update(dt: number, rpm: number, agl: number, speed: number, onGround: boolean) {
+  update(
+    dt: number,
+    rpm: number,
+    agl: number,
+    speed: number,
+    onGround: boolean,
+    boost = false,
+    overWater = false,
+  ) {
     const spin = rpm * rpm * 42;
     this.rotorAngle += spin * dt;
     this.tailAngle += spin * 3.2 * dt;
@@ -258,22 +313,98 @@ export class Helicopter {
 
     if (this.rotorDisk) {
       const diskMat = this.rotorDisk.material as THREE.MeshBasicMaterial;
-      diskMat.opacity = THREE.MathUtils.clamp((rpm - 0.4) * 1.1, 0, 0.85);
+      // Slightly more visible rotor blur
+      diskMat.opacity = THREE.MathUtils.clamp((rpm - 0.35) * 1.25, 0, 0.92);
       this.rotorDisk.rotation.z = this.rotorAngle * 0.2;
     }
     if (this.tailDisk) {
       const tMat = this.tailDisk.material as THREE.MeshBasicMaterial;
-      tMat.opacity = THREE.MathUtils.clamp((rpm - 0.35) * 1.0, 0, 0.7);
+      tMat.opacity = THREE.MathUtils.clamp((rpm - 0.3) * 1.15, 0, 0.8);
       this.tailDisk.rotation.z = this.tailAngle;
     }
 
-    this.updateParticles(this.exhaust, this.exhaustVel, dt, 2.5, rpm > 0.3);
-    const washStrength = rpm * THREE.MathUtils.clamp(1 - agl / 10, 0, 1);
-    (this.wash.material as THREE.PointsMaterial).opacity = washStrength * 0.5;
-    this.wash.visible = (washStrength > 0.05 && !onGround) || (onGround && rpm > 0.4);
-    this.updateParticles(this.wash, this.washVel, dt, 4 + speed * 0.1, washStrength > 0.05);
+    // Exhaust + heat shimmer
+    this.updateParticles(this.exhaust, this.exhaustVel, dt, 2.5, rpm > 0.3, {
+      biasY: 0.8,
+      biasZ: 1.2,
+    });
+    const heatOn = rpm > 0.35;
+    (this.heatShimmer.material as THREE.PointsMaterial).opacity = heatOn ? 0.22 + rpm * 0.15 : 0;
+    this.heatShimmer.visible = heatOn;
+    this.updateParticles(this.heatShimmer, this.heatVel, dt, 1.8, heatOn, {
+      biasY: 1.4,
+      biasZ: 0.6,
+      rise: true,
+    });
+
+    // Boost sparks only when boosting
+    this.boostSparks.visible = boost && rpm > 0.4;
+    if (this.boostSparks.visible) {
+      (this.boostSparks.material as THREE.PointsMaterial).opacity = 0.75;
+      this.updateParticles(this.boostSparks, this.sparkVel, dt, 6.5, true, {
+        biasY: 0.5,
+        biasZ: 2.5,
+      });
+    }
+
+    // Dust / water spray below
+    const washStrength = rpm * THREE.MathUtils.clamp(1 - agl / 12, 0, 1);
+    const groundBoost = onGround && rpm > 0.3 ? rpm * 0.55 : 0;
+    const wash = Math.max(washStrength, groundBoost);
+    const washMat = this.wash.material as THREE.PointsMaterial;
+    if (overWater) {
+      washMat.color.set(0xc8e8f0);
+      washMat.opacity = wash * 0.75;
+    } else {
+      washMat.color.set(0xc2b280);
+      washMat.opacity = wash * 0.7;
+    }
+    this.wash.visible = wash > 0.04;
+    this.updateParticles(this.wash, this.washVel, dt, 5.5 + speed * 0.15 + wash * 3.5, wash > 0.04);
+
+    this.updateTailTrail(dt, speed, rpm);
 
     void this.loaded;
+  }
+
+  private updateTailTrail(dt: number, speed: number, rpm: number) {
+    // Record local-space sample behind the tail boom
+    const active = rpm > 0.35 && speed > 2;
+    const mat = this.tailTrail.material as THREE.PointsMaterial;
+    if (!active) {
+      mat.opacity = Math.max(0, mat.opacity - dt * 1.5);
+      if (mat.opacity < 0.02) {
+        this.trailPositions.length = 0;
+        this.tailTrail.visible = false;
+      }
+      return;
+    }
+    this.tailTrail.visible = true;
+    mat.opacity = 0.28 + Math.min(0.25, speed * 0.01);
+
+    // Push a new sample at the tail (local +Z is aft after model yaw)
+    this.trailPositions.unshift(new THREE.Vector3(0, 0.35, this.rotorRadius * 0.85));
+    if (this.trailPositions.length > this.trailMax) this.trailPositions.pop();
+
+    // Drift older samples further aft / fade by stretching
+    const pos = this.tailTrail.geometry.attributes.position as THREE.BufferAttribute;
+    const arr = pos.array as Float32Array;
+    for (let i = 0; i < this.trailMax; i++) {
+      if (i < this.trailPositions.length) {
+        const p = this.trailPositions[i];
+        // Stretch trail aft over time
+        p.z += dt * (2.5 + speed * 0.15);
+        p.y += dt * 0.15;
+        arr[i * 3] = p.x;
+        arr[i * 3 + 1] = p.y;
+        arr[i * 3 + 2] = p.z;
+      } else {
+        arr[i * 3] = 0;
+        arr[i * 3 + 1] = -10;
+        arr[i * 3 + 2] = 0;
+      }
+    }
+    pos.needsUpdate = true;
   }
 
   private updateParticles(
@@ -282,17 +413,21 @@ export class Helicopter {
     dt: number,
     spread: number,
     active: boolean,
+    opts?: { biasY?: number; biasZ?: number; rise?: boolean },
   ) {
     const pos = points.geometry.attributes.position as THREE.BufferAttribute;
     const arr = pos.array as Float32Array;
+    const biasY = opts?.biasY ?? 0;
+    const biasZ = opts?.biasZ ?? 0;
     for (let i = 0; i < arr.length / 3; i++) {
       if (!active || Math.random() < 0.04) {
         arr[i * 3] = (Math.random() - 0.5) * 0.3;
         arr[i * 3 + 1] = Math.random() * 0.1;
         arr[i * 3 + 2] = (Math.random() - 0.5) * 0.3;
         vel[i * 3] = (Math.random() - 0.5) * spread;
-        vel[i * 3 + 1] = Math.random() * spread * 0.4;
-        vel[i * 3 + 2] = (Math.random() - 0.5) * spread;
+        vel[i * 3 + 1] = Math.random() * spread * 0.4 + biasY;
+        vel[i * 3 + 2] = (Math.random() - 0.5) * spread + biasZ;
+        if (opts?.rise) vel[i * 3 + 1] = Math.abs(vel[i * 3 + 1]) + 0.5;
       } else {
         arr[i * 3] += vel[i * 3] * dt;
         arr[i * 3 + 1] += vel[i * 3 + 1] * dt;
