@@ -61,13 +61,13 @@ export class Game {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    // Balance: readable dusk without white-blown sun
-    this.renderer.toneMappingExposure = 0.92;
+    // Lift midtones so pad/gravel/grass read; sky grade handles dusk mood
+    this.renderer.toneMappingExposure = 1.2;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    // Teal dusk fog — light enough that the island stays readable
-    const fogColor = new THREE.Color(0x1a4858);
-    this.scene.fog = new THREE.FogExp2(fogColor.getHex(), 0.0025);
+    // Warm dusk fog near horizon orange — distant trees dissolve instead of black cutouts
+    const fogColor = new THREE.Color(0xb09070);
+    this.scene.fog = new THREE.FogExp2(fogColor.getHex(), 0.004);
     this.scene.background = fogColor.clone();
 
     this.setupLighting();
@@ -99,14 +99,15 @@ export class Game {
   }
 
   private setupLighting() {
-    // Strong fill so foreground isn't crushed; dusk mood via warm sun + teal fog
-    this.hemiLight = new THREE.HemisphereLight(0xb0e0f5, 0x2a4030, 1.1);
+    // Strong fill so pad, gravel, and grass stay readable at dusk
+    this.hemiLight = new THREE.HemisphereLight(0xf0faff, 0x6a8068, 2.6);
     this.scene.add(this.hemiLight);
 
     // Lower sun elevation for longer orange rim (phi closer to horizon)
     this.sun.setFromSphericalCoords(1, THREE.MathUtils.degToRad(87), THREE.MathUtils.degToRad(155));
 
-    this.sunLight = new THREE.DirectionalLight(0xffa868, 1.05);
+    // Soft warm key — keep sun orange, not a white hole
+    this.sunLight = new THREE.DirectionalLight(0xff8040, 0.38);
     this.sunLight.position.copy(this.sun).multiplyScalar(160);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(2048, 2048);
@@ -120,20 +121,25 @@ export class Game {
     this.sunLight.shadow.normalBias = 0.025;
     this.scene.add(this.sunLight);
 
-    this.fillLight = new THREE.DirectionalLight(0x5aa0b8, 0.72);
-    this.fillLight.position.set(-50, 40, -40);
+    this.fillLight = new THREE.DirectionalLight(0xa0d8f0, 1.75);
+    this.fillLight.position.set(-50, 55, -40);
     this.scene.add(this.fillLight);
 
     // Cool bounce from opposite side softens shadow wells
-    const bounce = new THREE.DirectionalLight(0x3a6878, 0.35);
-    bounce.position.set(30, 20, 50);
+    const bounce = new THREE.DirectionalLight(0x7aa8b8, 1.05);
+    bounce.position.set(30, 30, 50);
     this.scene.add(bounce);
 
-    this.ambientLight = new THREE.AmbientLight(0x244840, 0.45);
+    // Extra warm fill from sun side so pad apron isn't crushed
+    const warmFill = new THREE.DirectionalLight(0xffc898, 0.9);
+    warmFill.position.copy(this.sun).multiplyScalar(80);
+    this.scene.add(warmFill);
+
+    this.ambientLight = new THREE.AmbientLight(0x5a8878, 1.35);
     this.scene.add(this.ambientLight);
 
     // Warm orange rim from sun direction — tracks heli each frame
-    this.rimLight = new THREE.DirectionalLight(0xff9048, 1.15);
+    this.rimLight = new THREE.DirectionalLight(0xffb878, 3.0);
     this.rimLight.castShadow = false;
     this.rimTarget.position.set(0, 0, 0);
     this.scene.add(this.rimTarget);
@@ -145,11 +151,11 @@ export class Game {
     const sky = new Sky();
     sky.scale.setScalar(4500);
     const u = sky.material.uniforms;
-    // Cleaner gradient — low turbidity/mie keeps sun warm orange, not white disc
-    u['turbidity'].value = 2.2;
-    u['rayleigh'].value = 2.6;
-    u['mieCoefficient'].value = 0.0018;
-    u['mieDirectionalG'].value = 0.62;
+    // Soft orange sun — minimal mie so disc stays warm under bloom
+    u['turbidity'].value = 1.0;
+    u['rayleigh'].value = 2.0;
+    u['mieCoefficient'].value = 0.00035;
+    u['mieDirectionalG'].value = 0.4;
     u['sunPosition'].value.copy(this.sun);
     this.scene.add(sky);
     return sky;

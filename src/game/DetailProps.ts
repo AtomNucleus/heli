@@ -121,17 +121,17 @@ export class DetailProps {
       this.group.add(cap);
     }
 
-    const tower = this.buildTower(6.5);
-    this.placeOnTerrain(tower, 18, -4, getHeight);
+    const tower = this.buildTower(7.5);
+    this.placeOnTerrain(tower, 18, -4, getHeight, 0.05);
 
-    // Small antenna near pad apron
-    const ant = this.buildTower(3.2, 0x505860);
-    this.placeOnTerrain(ant, 2, 14, getHeight);
+    // Small antenna near pad apron — clearly above ground
+    const ant = this.buildTower(4.2, 0x505860);
+    this.placeOnTerrain(ant, 2, 14, getHeight, 0.05);
     void posts;
   }
 
   private buildSecondaryPadDock(getHeight: HeightFn, waterLevel: number) {
-    // Dock near secondary pad (-55, 40)
+    // Dock near secondary pad (-55, 40) — deck clearly above water
     const wood = this.woodMat(0x3d2e20);
     const pier = new THREE.Group();
     const deck = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.18, 10), wood);
@@ -139,13 +139,14 @@ export class DetailProps {
     deck.castShadow = true;
     pier.add(deck);
     for (let i = 0; i < 5; i++) {
-      const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 2.2, 6), wood);
-      pile.position.set((i % 2 === 0 ? -1.2 : 1.2), -0.6, -4 + i * 2);
+      const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 2.8, 6), wood);
+      pile.position.set((i % 2 === 0 ? -1.2 : 1.2), -0.9, -4 + i * 2);
       pier.add(pile);
     }
     const hx = -68;
     const hz = 48;
-    pier.position.set(hx, Math.max(waterLevel, getHeight(hx, hz)) + 0.15, hz);
+    const shoreH = getHeight(hx, hz);
+    pier.position.set(hx, Math.max(waterLevel + 0.55, shoreH + 0.35), hz);
     pier.rotation.y = 0.6;
     this.group.add(pier);
 
@@ -160,7 +161,7 @@ export class DetailProps {
       const x = -68 + (-55 + 68) * t * 0.7;
       const z = 48 + (40 - 48) * t * 0.7;
       const buoy = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, 0.7, 6), buoyMat);
-      buoy.position.set(x, waterLevel + 0.35, z);
+      buoy.position.set(x, waterLevel + 0.45, z);
       this.group.add(buoy);
     }
   }
@@ -208,13 +209,14 @@ export class DetailProps {
     deck.position.y = 0.15;
     pier.add(deck);
     for (let i = 0; i < 4; i++) {
-      const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 1.8, 5), wood);
-      pile.position.set(i % 2 === 0 ? -0.9 : 0.9, -0.5, -3 + i * 2);
+      const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 2.4, 5), wood);
+      pile.position.set(i % 2 === 0 ? -0.9 : 0.9, -0.7, -3 + i * 2);
       pier.add(pile);
     }
     const x = 72;
     const z = 55;
-    pier.position.set(x, Math.max(waterLevel + 0.1, getHeight(x, z) * 0.3 + waterLevel), z);
+    const shoreH = getHeight(x, z);
+    pier.position.set(x, Math.max(waterLevel + 0.5, shoreH + 0.3), z);
     pier.rotation.y = -0.9;
     this.group.add(pier);
 
@@ -229,7 +231,7 @@ export class DetailProps {
       const rz = z + (Math.random() - 0.5) * 8;
       const rh = getHeight(rx, rz);
       const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.5 + Math.random() * 0.6, 0), rockMat);
-      rock.position.set(rx, Math.max(rh, waterLevel) + 0.2, rz);
+      rock.position.set(rx, Math.max(rh, waterLevel) + 0.35, rz);
       rock.rotation.set(Math.random(), Math.random(), Math.random());
       rock.castShadow = true;
       this.group.add(rock);
@@ -237,25 +239,27 @@ export class DetailProps {
   }
 
   private buildWindTurbines(getHeight: HeightFn) {
+    // Ridge sites — must clear water and read against sky
     const sites: [number, number][] = [
       [-90, -70],
       [-105, -55],
       [-80, -90],
+      [95, -75],
     ];
     for (const [x, z] of sites) {
       const h = getHeight(x, z);
-      if (h < 4) continue;
+      if (h < 3.5) continue;
       const tower = new THREE.Group();
       const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.35, 0.55, 14, 8),
+        new THREE.CylinderGeometry(0.35, 0.55, 16, 8),
         this.metalMat(0xc8d0d4, 0x223344, 0.05),
       );
-      pole.position.y = 7;
+      pole.position.y = 8;
       pole.castShadow = true;
       tower.add(pole);
 
       const hub = new THREE.Group();
-      hub.position.y = 14;
+      hub.position.y = 16;
       const nacelle = new THREE.Mesh(
         new THREE.BoxGeometry(1.2, 0.7, 1.8),
         this.metalMat(0xb0b8bc),
@@ -263,8 +267,8 @@ export class DetailProps {
       hub.add(nacelle);
       const bladeMat = this.metalMat(0xe8ecee);
       for (let i = 0; i < 3; i++) {
-        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.25, 6.5, 0.4), bladeMat);
-        blade.position.y = 3.2;
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.25, 7.2, 0.4), bladeMat);
+        blade.position.y = 3.5;
         const arm = new THREE.Group();
         arm.rotation.z = (i * Math.PI * 2) / 3;
         arm.add(blade);
@@ -306,9 +310,10 @@ export class DetailProps {
     const mat = new THREE.MeshStandardMaterial({
       color: 0xffcc66,
       emissive: 0xffaa44,
-      emissiveIntensity: 1.2,
-      roughness: 0.4,
+      emissiveIntensity: 1.55,
+      roughness: 0.35,
     });
+    // Distant coast markers + dense cluster near primary spawn (8, 5)
     const points: [number, number][] = [
       [35, -55],
       [50, -40],
@@ -320,13 +325,39 @@ export class DetailProps {
       [15, -70],
       [80, 30],
       [-30, 55],
+      // Near-camera spawn apron / shore
+      [4, 0],
+      [12, 2],
+      [10, 10],
+      [2, 8],
+      [16, 8],
+      [6, -4],
+      [14, -2],
+      [0, 4],
+      [20, 6],
+      [8, 16],
+      [-2, 10],
+      [18, -8],
     ];
     for (const [x, z] of points) {
       const h = getHeight(x, z);
-      const y = h > waterLevel + 0.5 ? h + 0.35 : waterLevel + 0.5;
-      const light = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.35), mat);
+      const y = h > waterLevel + 0.4 ? h + 0.55 : waterLevel + 0.65;
+      const light = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.45, 0.45), mat);
       light.position.set(x, y, z);
       this.group.add(light);
+      // Soft glow sphere so lights read at dusk
+      const glow = new THREE.Mesh(
+        new THREE.SphereGeometry(0.55, 6, 6),
+        new THREE.MeshBasicMaterial({
+          color: 0xffb060,
+          transparent: true,
+          opacity: 0.35,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      glow.position.set(x, y, z);
+      this.group.add(glow);
     }
   }
 

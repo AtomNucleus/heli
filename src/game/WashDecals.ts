@@ -20,12 +20,13 @@ export class WashDecals {
     this.waterLevel = waterLevel;
     const geo = new THREE.RingGeometry(0.85, 1.0, 32);
     const mat = new THREE.MeshBasicMaterial({
-      color: 0xd8ece8,
+      color: 0xf0fff8,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.72,
       side: THREE.DoubleSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      fog: false,
     });
     this.mesh = new THREE.InstancedMesh(geo, mat, this.max);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -63,7 +64,7 @@ export class WashDecals {
     const strength = Math.max(wash, groundBoost);
 
     this.spawnAcc += dt;
-    if (strength > 0.12 && this.spawnAcc > 0.18) {
+    if (strength > 0.08 && this.spawnAcc > 0.12) {
       this.spawnAcc = 0;
       this.spawn(heliPos.x, overWater ? this.waterLevel + 0.04 : groundY + 0.06, heliPos.z, strength, overWater);
     }
@@ -95,9 +96,9 @@ export class WashDecals {
       this.mesh.setMatrixAt(i, this.dummy.matrix);
 
       if (this.overWater[i]) {
-        colorAttr.setXYZ(i, 0.75 * fade, 0.92 * fade, 0.95 * fade);
+        colorAttr.setXYZ(i, 0.95 * fade, 1.05 * fade, 1.1 * fade);
       } else {
-        colorAttr.setXYZ(i, 0.55 * fade, 0.5 * fade, 0.35 * fade);
+        colorAttr.setXYZ(i, 0.75 * fade, 0.68 * fade, 0.45 * fade);
       }
     }
     this.mesh.instanceMatrix.needsUpdate = true;
@@ -114,8 +115,8 @@ export class WashDecals {
       }
     }
     this.ages[best] = 0;
-    this.radii[best] = 1.2 + strength * 1.8;
-    this.strengths[best] = Math.min(1, strength * 1.2);
+    this.radii[best] = 1.4 + strength * 2.2;
+    this.strengths[best] = Math.min(1.35, strength * 1.55);
     this.positions[best * 3] = x + (Math.random() - 0.5) * 0.6;
     this.positions[best * 3 + 1] = y;
     this.positions[best * 3 + 2] = z + (Math.random() - 0.5) * 0.6;

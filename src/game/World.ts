@@ -28,6 +28,8 @@ export class World {
   private padMaterials: THREE.MeshStandardMaterial[] = [];
   private envMap: THREE.Texture | null = null;
   private haze?: THREE.Mesh;
+  private warmHaze?: THREE.Mesh;
+  private sunHaze?: THREE.Mesh;
 
   constructor(options?: {
     envMap?: THREE.Texture | null;
@@ -93,7 +95,15 @@ export class World {
     this.details.update(dt);
     if (this.haze) {
       const mat = this.haze.material as THREE.MeshBasicMaterial;
-      mat.opacity = 0.22 + Math.sin(this.clock * 0.15) * 0.03;
+      mat.opacity = 0.48 + Math.sin(this.clock * 0.15) * 0.04;
+    }
+    if (this.warmHaze) {
+      const mat = this.warmHaze.material as THREE.MeshBasicMaterial;
+      mat.opacity = 0.42 + Math.sin(this.clock * 0.12) * 0.04;
+    }
+    if (this.sunHaze) {
+      const mat = this.sunHaze.material as THREE.MeshBasicMaterial;
+      mat.opacity = 0.55 + Math.sin(this.clock * 0.1) * 0.05;
     }
   }
 
@@ -114,57 +124,112 @@ export class World {
   }
 
   private addHorizonHaze() {
-    // Soft warm horizon band only — avoid a full disc that reads as a sky artifact
+    // Warm horizon band — dissolves distant silhouettes into dusk
     const warm = new THREE.Mesh(
-      new THREE.RingGeometry(200, 560, 64),
+      new THREE.RingGeometry(100, 900, 64),
       new THREE.MeshBasicMaterial({
-        color: 0xd09060,
+        color: 0xffb078,
         transparent: true,
-        opacity: 0.12,
+        opacity: 0.55,
         side: THREE.DoubleSide,
         depthWrite: false,
         fog: false,
       }),
     );
     warm.rotation.x = -Math.PI / 2;
-    warm.position.y = 12;
+    warm.position.y = 6;
     warm.renderOrder = -2;
+    this.warmHaze = warm;
     this.group.add(warm);
 
-    // Low teal ground haze (thin ring near shore distance, not a filled disc)
-    const teal = new THREE.Mesh(
-      new THREE.RingGeometry(80, 420, 64),
+    // Extra warm lobe toward sun azimuth (~155°)
+    const sunSide = new THREE.Mesh(
+      new THREE.RingGeometry(60, 850, 48, 1, 0, Math.PI * 1.15),
       new THREE.MeshBasicMaterial({
-        color: 0x1a4858,
+        color: 0xffc080,
         transparent: true,
-        opacity: 0.16,
+        opacity: 0.65,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        fog: false,
+      }),
+    );
+    sunSide.rotation.x = -Math.PI / 2;
+    sunSide.rotation.z = THREE.MathUtils.degToRad(155) - Math.PI * 0.575;
+    sunSide.position.y = 12;
+    sunSide.renderOrder = -2;
+    this.sunHaze = sunSide;
+    this.group.add(sunSide);
+
+    // Vertical haze curtains — softens tree/hill cutouts against sky
+    const curtain = new THREE.Mesh(
+      new THREE.CylinderGeometry(300, 360, 42, 48, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xd0a080,
+        transparent: true,
+        opacity: 0.32,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        fog: false,
+      }),
+    );
+    curtain.position.y = 14;
+    curtain.renderOrder = -3;
+    this.group.add(curtain);
+
+    const curtain2 = new THREE.Mesh(
+      new THREE.CylinderGeometry(380, 440, 55, 48, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xb09078,
+        transparent: true,
+        opacity: 0.2,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        fog: false,
+      }),
+    );
+    curtain2.position.y = 18;
+    curtain2.renderOrder = -4;
+    this.group.add(curtain2);
+
+    // Low warm ground haze
+    const teal = new THREE.Mesh(
+      new THREE.RingGeometry(30, 650, 64),
+      new THREE.MeshBasicMaterial({
+        color: 0x6a7870,
+        transparent: true,
+        opacity: 0.42,
         side: THREE.DoubleSide,
         depthWrite: false,
         fog: false,
       }),
     );
     teal.rotation.x = -Math.PI / 2;
-    teal.position.y = 3.5;
+    teal.position.y = 4;
     teal.renderOrder = -2;
     this.haze = teal;
     this.group.add(teal);
   }
 
   private addSkyDecor() {
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x0a1820,
-      roughness: 1,
-      metalness: 0,
-      flatShading: true,
-    });
+    // Distant hills — warm muted, fog-enabled, low so they sit in atmosphere
     for (let i = 0; i < 8; i++) {
       const ang = (i / 8) * Math.PI * 2;
-      const r = 280 + (i % 3) * 40;
+      const r = 250 + (i % 3) * 30;
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x5a6058,
+        roughness: 1,
+        metalness: 0,
+        emissive: 0x000000,
+        emissiveIntensity: 0,
+        flatShading: true,
+        fog: true,
+      });
       const hill = new THREE.Mesh(
-        new THREE.ConeGeometry(40 + (i % 4) * 15, 25 + (i % 3) * 12, 5),
+        new THREE.ConeGeometry(36 + (i % 4) * 12, 14 + (i % 3) * 6, 5),
         mat,
       );
-      hill.position.set(Math.cos(ang) * r, 5, Math.sin(ang) * r);
+      hill.position.set(Math.cos(ang) * r, -4, Math.sin(ang) * r);
       hill.rotation.y = ang;
       this.group.add(hill);
     }
@@ -175,10 +240,11 @@ export class World {
     const canopyGeo = new THREE.ConeGeometry(1.1, 2.4, 6);
     const geo = new THREE.ConeGeometry(1.0, 2.8, 6);
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x1a3a28,
+      color: 0x4a6a58,
       roughness: 0.85,
       metalness: 0.05,
       flatShading: true,
+      fog: true,
     });
     const mesh = new THREE.InstancedMesh(geo, mat, count);
     mesh.castShadow = true;
@@ -205,10 +271,10 @@ export class World {
       dummy.updateMatrix();
       mesh.setMatrixAt(placed, dummy.matrix);
 
-      const tint = 0.85 + Math.random() * 0.3;
-      colors[placed * 3] = 0.1 * tint;
-      colors[placed * 3 + 1] = 0.22 * tint + Math.random() * 0.06;
-      colors[placed * 3 + 2] = 0.14 * tint;
+      const tint = 1.05 + Math.random() * 0.2;
+      colors[placed * 3] = 0.28 * tint;
+      colors[placed * 3 + 1] = 0.4 * tint + Math.random() * 0.05;
+      colors[placed * 3 + 2] = 0.3 * tint;
       placed++;
     }
     mesh.count = placed;
@@ -275,11 +341,11 @@ export class World {
   private buildPads() {
     // Wet pad: lower roughness + stronger envMap for subtle sky reflection
     const padMat = new THREE.MeshStandardMaterial({
-      color: 0x2e3638,
-      metalness: 0.72,
-      roughness: 0.22,
-      emissive: 0x0a2a1a,
-      emissiveIntensity: 0.18,
+      color: 0x4a5558,
+      metalness: 0.55,
+      roughness: 0.28,
+      emissive: 0x1a3a2a,
+      emissiveIntensity: 0.35,
       envMap: this.envMap ?? undefined,
       envMapIntensity: 0.95,
     });
@@ -288,7 +354,7 @@ export class World {
     const markMat = new THREE.MeshStandardMaterial({
       color: 0x3dff9a,
       emissive: 0x3dff9a,
-      emissiveIntensity: 0.5,
+      emissiveIntensity: 0.7,
       roughness: 0.28,
       metalness: 0.45,
       envMap: this.envMap ?? undefined,

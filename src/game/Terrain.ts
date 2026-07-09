@@ -41,21 +41,21 @@ function makeTerrainAlbedo(kind: 'grass' | 'sand' | 'rock', size = 256): THREE.C
   let nScale: number;
   // sRGB-authored bases — keep readable under dusk without over-bright midtones
   if (kind === 'grass') {
-    baseR = 0.22;
-    baseG = 0.34;
-    baseB = 0.18;
+    baseR = 0.28;
+    baseG = 0.42;
+    baseB = 0.24;
     varAmp = 0.12;
     nScale = 10;
   } else if (kind === 'sand') {
-    baseR = 0.62;
-    baseG = 0.54;
-    baseB = 0.36;
+    baseR = 0.72;
+    baseG = 0.62;
+    baseB = 0.42;
     varAmp = 0.12;
     nScale = 8;
   } else {
-    baseR = 0.48;
-    baseG = 0.44;
-    baseB = 0.4;
+    baseR = 0.55;
+    baseG = 0.5;
+    baseB = 0.45;
     varAmp = 0.16;
     nScale = 14;
   }

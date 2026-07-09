@@ -3,9 +3,9 @@
  * Requires: npm run dev on http://127.0.0.1:5173, google-chrome, playwright-core.
  *
  * Outputs:
- *   heli-cinematic-title.png
- *   heli-cinematic-flight.png
- *   heli-cinematic-water.png
+ *   heli-cinematic2-title.png
+ *   heli-cinematic2-flight.png
+ *   heli-cinematic2-water.png
  */
 import { chromium } from 'playwright-core';
 import { mkdir } from 'node:fs/promises';
@@ -125,20 +125,24 @@ async function main() {
   });
   console.log('sanity', sanity);
 
-  // --- 1) Title: cinematic island dusk — look toward sun behind the pad ---
+    // --- 1) Title: cinematic island dusk — look toward sun behind the pad ---
   await page.evaluate(() => {
     const g = window.__game || window.__HELI_DEBUG;
     g.showTitle();
     const padH = g.world.getHeight(8, 5);
-    // Place camera opposite the sun so the warm horizon sits behind the pad
+    // Closer, slightly off sun-axis so pad isn't fully backlit
     const sun = g.sun.clone().normalize();
+    // Perpendicular side vector without THREE in page scope
+    const len = Math.hypot(-sun.z, sun.x) || 1;
+    const sx = -sun.z / len;
+    const sz = sun.x / len;
     g.cameraRig.camera.position.set(
-      8 - sun.x * 52,
-      padH + 14,
-      5 - sun.z * 52,
+      8 - sun.x * 28 + sx * 22,
+      padH + 9,
+      5 - sun.z * 28 + sz * 22,
     );
-    g.cameraRig.camera.lookAt(8, padH + 2.5, 5);
-    g.cameraRig.camera.fov = 48;
+    g.cameraRig.camera.lookAt(8, padH + 1.4, 5);
+    g.cameraRig.camera.fov = 44;
     g.cameraRig.camera.updateProjectionMatrix();
     for (let i = 0; i < 50; i++) {
       g.world.updateEffects(g.flight.state.position, 0.55, 1.0, true, 1 / 30);
@@ -146,7 +150,7 @@ async function main() {
     }
   });
   await sleep(700);
-  const titlePath = path.join(OUT, 'heli-cinematic-title.png');
+  const titlePath = path.join(OUT, 'heli-cinematic2-title.png');
   await page.screenshot({ path: titlePath, type: 'png', timeout: 60000 });
   console.log('Wrote', titlePath);
 
@@ -195,7 +199,7 @@ async function main() {
     await pose(page, { ...flightPose, washSteps: 6 });
     await sleep(40);
   }
-  const flightPath = path.join(OUT, 'heli-cinematic-flight.png');
+  const flightPath = path.join(OUT, 'heli-cinematic2-flight.png');
   await page.screenshot({ path: flightPath, type: 'png', timeout: 60000 });
   console.log('Wrote', flightPath);
 
@@ -217,21 +221,21 @@ async function main() {
     speed: 10,
     overWater: true,
     washSteps: 80,
-    // Low coastal angle — foam, buoys, wash, pad markers
-    camX: -14,
-    camY: 5.5,
-    camZ: -36,
-    lookX: 10,
-    lookY: 1.8,
-    lookZ: 2,
-    fov: 46,
+    // Low coastal angle — foam, buoys, wash, pad markers; catch sun streak
+    camX: -10,
+    camY: 6.5,
+    camZ: -32,
+    lookX: 12,
+    lookY: 2.2,
+    lookZ: 4,
+    fov: 48,
   };
   await pose(page, waterPose);
   for (let i = 0; i < 8; i++) {
     await pose(page, { ...waterPose, washSteps: 8 });
     await sleep(40);
   }
-  const waterPath = path.join(OUT, 'heli-cinematic-water.png');
+  const waterPath = path.join(OUT, 'heli-cinematic2-water.png');
   await page.screenshot({ path: waterPath, type: 'png', timeout: 60000 });
   console.log('Wrote', waterPath);
 

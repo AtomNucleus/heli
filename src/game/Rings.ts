@@ -130,7 +130,7 @@ export class Rings {
     const silMat = new THREE.MeshBasicMaterial({
       color: 0x010304,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.85,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
@@ -142,15 +142,15 @@ export class Rings {
       root.quaternion.copy(quat);
       root.position.copy(d.position);
 
-      // Dark silhouette tube (not filled) for contrast against bright sky / sun
+      // Thick dark silhouette tube for contrast against bright sky / sun
       const silhouette = new THREE.Mesh(
-        buildSegmentedTorus(d.radius, 0.36, SEGMENTS),
+        buildSegmentedTorus(d.radius, 0.62, SEGMENTS),
         silMat.clone(),
       );
       silhouette.renderOrder = 0;
 
       const tube = new THREE.Mesh(
-        buildSegmentedTorus(d.radius, 0.22, SEGMENTS),
+        buildSegmentedTorus(d.radius, 0.32, SEGMENTS),
         this.activeMat.clone(),
       );
       tube.castShadow = true;
@@ -160,19 +160,19 @@ export class Rings {
       const glow = new THREE.Mesh(new THREE.RingGeometry(d.radius * 0.55, d.radius * 1.05, 32), glowMat.clone());
       glow.renderOrder = 0;
 
-      // Inner flight-direction arrows (along +Z in local = ring normal in world)
+      // Inner flight-direction arrows — large enough to read in screenshots
       const arrows: THREE.Mesh[] = [];
       const arrowMat = new THREE.MeshStandardMaterial({
         color: 0x1a4030,
         emissive: 0x3dff9a,
-        emissiveIntensity: 0.9,
+        emissiveIntensity: 1.35,
         metalness: 0.3,
         roughness: 0.4,
       });
       for (let a = 0; a < 3; a++) {
-        const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.9, 5), arrowMat.clone());
+        const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.72, 1.7, 5), arrowMat.clone());
         const ang = (a / 3) * Math.PI * 2;
-        const rr = d.radius * 0.42;
+        const rr = d.radius * 0.34;
         arrow.position.set(Math.cos(ang) * rr, Math.sin(ang) * rr, 0);
         // Point along ring normal (+Z local) — flight direction through the gate
         arrow.rotation.x = Math.PI / 2;
@@ -180,8 +180,8 @@ export class Rings {
         root.add(arrow);
       }
 
-      // Orbiting spark particles
-      const pCount = 24;
+      // Orbiting spark particles — brighter / larger
+      const pCount = 32;
       const pPos = new Float32Array(pCount * 3);
       const angles = new Float32Array(pCount);
       for (let i = 0; i < pCount; i++) {
@@ -194,12 +194,13 @@ export class Rings {
       const pGeo = new THREE.BufferGeometry();
       pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
       const pMat = new THREE.PointsMaterial({
-        color: 0x7dffb8,
-        size: 0.35,
+        color: 0xc8ffe0,
+        size: 0.75,
         transparent: true,
-        opacity: 0.7,
+        opacity: 1.0,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
+        sizeAttenuation: true,
       });
       const particles = new THREE.Points(pGeo, pMat);
 
@@ -273,7 +274,7 @@ export class Rings {
       arr[i * 3 + 2] = Math.sin(a * 2 + this.clock) * 0.15;
     }
     pos.needsUpdate = true;
-    (r.particles.material as THREE.PointsMaterial).opacity = 0.45 + pulse * 0.4;
+    (r.particles.material as THREE.PointsMaterial).opacity = 0.65 + pulse * 0.35;
   }
 
   private animateIdle(dt: number) {
@@ -301,25 +302,25 @@ export class Rings {
         }
       } else if (i === this.nextIndex) {
         r.tube.material = this.activeMat.clone();
-        (r.silhouette.material as THREE.MeshBasicMaterial).opacity = 0.82;
+        (r.silhouette.material as THREE.MeshBasicMaterial).opacity = 0.92;
         (r.glow.material as THREE.MeshBasicMaterial).color.set(0x3dff9a);
-        (r.glow.material as THREE.MeshBasicMaterial).opacity = 0.2;
+        (r.glow.material as THREE.MeshBasicMaterial).opacity = 0.22;
         r.particles.visible = true;
-        (r.particles.material as THREE.PointsMaterial).opacity = 0.7;
-        (r.particles.material as THREE.PointsMaterial).color.set(0x7dffb8);
+        (r.particles.material as THREE.PointsMaterial).opacity = 0.95;
+        (r.particles.material as THREE.PointsMaterial).color.set(0xa8ffd0);
         for (const a of r.arrows) {
           const m = a.material as THREE.MeshStandardMaterial;
           m.emissive.set(0x3dff9a);
-          m.emissiveIntensity = 1.0;
+          m.emissiveIntensity = 1.45;
         }
       } else {
         r.tube.material = this.pendingMat.clone();
-        (r.silhouette.material as THREE.MeshBasicMaterial).opacity = 0.7;
-        (r.glow.material as THREE.MeshBasicMaterial).opacity = 0.07;
-        (r.particles.material as THREE.PointsMaterial).opacity = 0.12;
+        (r.silhouette.material as THREE.MeshBasicMaterial).opacity = 0.82;
+        (r.glow.material as THREE.MeshBasicMaterial).opacity = 0.08;
+        (r.particles.material as THREE.PointsMaterial).opacity = 0.2;
         for (const a of r.arrows) {
           const m = a.material as THREE.MeshStandardMaterial;
-          m.emissiveIntensity = 0.25;
+          m.emissiveIntensity = 0.45;
         }
       }
     });

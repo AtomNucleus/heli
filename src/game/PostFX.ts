@@ -9,10 +9,10 @@ const ColorGradeShader = {
     tDiffuse: { value: null as THREE.Texture | null },
     shadowTint: { value: new THREE.Color(0x0a3a40) },
     highlightTint: { value: new THREE.Color(0xffb070) },
-    contrast: { value: 1.06 },
-    saturation: { value: 1.08 },
-    shadowLift: { value: 0.32 },
-    highlightWarm: { value: 0.16 },
+    contrast: { value: 1.0 },
+    saturation: { value: 1.05 },
+    shadowLift: { value: 0.0 },
+    highlightWarm: { value: 0.2 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -56,7 +56,7 @@ const SunGlareShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
     sunPos: { value: new THREE.Vector2(0.7, 0.75) },
-    intensity: { value: 0.22 },
+    intensity: { value: 0.34 },
     aspect: { value: 1.6 },
     visible: { value: 1.0 },
   },
@@ -88,11 +88,11 @@ const SunGlareShader = {
       d.x *= aspect;
       float dist = length(d);
 
-      // Soft sun disc bloom / glare
-      float core = exp(-dist * dist * 48.0) * 0.55;
-      float halo = exp(-dist * dist * 8.0) * 0.22;
-      float streak = exp(-abs(d.x) * 28.0) * exp(-abs(d.y) * 2.2) * 0.12;
-      float streak2 = exp(-abs(d.y) * 32.0) * exp(-abs(d.x) * 2.0) * 0.08;
+      // Soft orange glow — wider halo, softer core (no white hole)
+      float core = exp(-dist * dist * 28.0) * 0.28;
+      float halo = exp(-dist * dist * 4.0) * 0.38;
+      float streak = exp(-abs(d.x) * 18.0) * exp(-abs(d.y) * 1.5) * 0.2;
+      float streak2 = exp(-abs(d.y) * 24.0) * exp(-abs(d.x) * 1.5) * 0.12;
 
       // Ghost orbs along sun→center axis
       vec2 toCenter = vec2(0.5) - sp;
@@ -102,11 +102,11 @@ const SunGlareShader = {
         vec2 gp = sp + toCenter * t;
         vec2 gd = uv - gp;
         gd.x *= aspect;
-        ghosts += exp(-dot(gd, gd) * 220.0) * (0.08 / float(i));
+        ghosts += exp(-dot(gd, gd) * 180.0) * (0.1 / float(i));
       }
 
       float glare = (core + halo + streak + streak2 + ghosts) * intensity * visible;
-      vec3 warm = vec3(1.0, 0.78, 0.48);
+      vec3 warm = vec3(1.0, 0.55, 0.25);
       texel.rgb += warm * glare;
 
       gl_FragColor = texel;
@@ -117,8 +117,8 @@ const SunGlareShader = {
 const VignetteShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    darkness: { value: 0.42 },
-    offset: { value: 0.95 },
+    darkness: { value: 0.12 },
+    offset: { value: 1.0 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -153,8 +153,8 @@ export class PostFX {
     this.composer.addPass(new RenderPass(scene, camera));
 
     const size = renderer.getSize(new THREE.Vector2());
-    // Moderate bloom — rings + sun glow without washing the scene
-    this.bloom = new UnrealBloomPass(size, 0.26, 0.5, 0.78);
+    // Higher threshold — rings glow, sun stays soft orange (not white hole)
+    this.bloom = new UnrealBloomPass(size, 0.16, 0.65, 0.95);
     this.composer.addPass(this.bloom);
 
     const grade = new ShaderPass(ColorGradeShader);
