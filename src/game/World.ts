@@ -37,7 +37,7 @@ export class World {
   }) {
     this.envMap = options?.envMap ?? null;
 
-    this.terrain = new Terrain(420, 128, this.envMap);
+    this.terrain = new Terrain(420, 160, this.envMap);
     this.water = new Water(1100, {
       sunDirection: options?.sunDirection,
       fog: true,

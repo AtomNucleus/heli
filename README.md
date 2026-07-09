@@ -61,3 +61,7 @@ Fly through glowing checkpoint rings **in order**, then land on an **H** pad for
 - Three.js r160+ (Sky, postprocessing bloom + vignette)
 - Web Audio API procedural rotor / wind
 - Netlify static hosting
+
+## Assets
+
+Terrain PBR maps (`public/textures/terrain/`) are CC0 from [Poly Haven](https://polyhaven.com) — see `public/textures/ATTRIBUTION.md`.

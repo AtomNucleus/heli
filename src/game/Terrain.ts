@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
-/** Procedural canvas albedo for a terrain layer (no custom normal blending). */
-function makeTerrainAlbedo(kind: 'grass' | 'sand' | 'rock', size = 256): THREE.CanvasTexture {
+/** Procedural canvas albedo for a terrain layer (fallback when textures fail). */
+function makeTerrainAlbedo(kind: 'grass' | 'sand' | 'rock' | 'gravel', size = 256): THREE.CanvasTexture {
   const albedoCanvas = document.createElement('canvas');
   albedoCanvas.width = size;
   albedoCanvas.height = size;
@@ -52,6 +52,12 @@ function makeTerrainAlbedo(kind: 'grass' | 'sand' | 'rock', size = 256): THREE.C
     baseB = 0.42;
     varAmp = 0.12;
     nScale = 8;
+  } else if (kind === 'gravel') {
+    baseR = 0.48;
+    baseG = 0.46;
+    baseB = 0.42;
+    varAmp = 0.14;
+    nScale = 16;
   } else {
     baseR = 0.55;
     baseG = 0.5;
@@ -86,6 +92,12 @@ function makeTerrainAlbedo(kind: 'grass' | 'sand' | 'rock', size = 256): THREE.C
           r = Math.min(1, r + 0.12);
           g = Math.min(1, g + 0.08);
         }
+      } else if (kind === 'gravel') {
+        if (hash(x * 2.1, y * 3.3) > 0.82) {
+          r *= 0.72;
+          g *= 0.72;
+          b *= 0.7;
+        }
       } else {
         const crack = Math.abs(fbm(u * 20, v * 20, 2) - 0.5);
         if (crack < 0.04) {
@@ -113,15 +125,45 @@ function makeTerrainAlbedo(kind: 'grass' | 'sand' | 'rock', size = 256): THREE.C
   return albedo;
 }
 
+function configureTerrainTexture(tex: THREE.Texture, isColor: boolean): THREE.Texture {
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  if (isColor) {
+    tex.colorSpace = THREE.SRGBColorSpace;
+  }
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function loadTerrainTexture(
+  loader: THREE.TextureLoader,
+  url: string,
+  isColor: boolean,
+): Promise<THREE.Texture | null> {
+  return new Promise((resolve) => {
+    loader.load(
+      url,
+      (tex) => resolve(configureTerrainTexture(tex, isColor)),
+      undefined,
+      () => {
+        console.warn(`[Terrain] Failed to load texture: ${url} — using procedural fallback`);
+        resolve(null);
+      },
+    );
+  });
+}
+
 /** Value-noise heightmap terrain with world-XZ textured blends + wet shoreline. */
 export class Terrain {
   readonly mesh: THREE.Mesh;
   readonly size: number;
   readonly segments: number;
+  /** Resolves when Poly Haven (or fallback) textures are applied. */
+  readonly ready: Promise<void>;
   private heights: Float32Array;
   private readonly half: number;
 
-  constructor(size = 420, segments = 128, envMap?: THREE.Texture | null) {
+  constructor(size = 420, segments = 160, envMap?: THREE.Texture | null) {
     this.size = size;
     this.segments = segments;
     this.half = size / 2;
@@ -142,24 +184,32 @@ export class Terrain {
     }
     geo.computeVertexNormals();
 
-    const grassMap = makeTerrainAlbedo('grass', 256);
-    const sandMap = makeTerrainAlbedo('sand', 256);
-    const rockMap = makeTerrainAlbedo('rock', 256);
+    // Procedural placeholders so the first frame is never pink / untextured.
+    // Mutable refs so onBeforeCompile (incl. recompile after normalMap) picks up swaps.
+    const layerMaps = {
+      grass: makeTerrainAlbedo('grass', 256) as THREE.Texture,
+      sand: makeTerrainAlbedo('sand', 256) as THREE.Texture,
+      rock: makeTerrainAlbedo('rock', 256) as THREE.Texture,
+      gravel: makeTerrainAlbedo('gravel', 256) as THREE.Texture,
+    };
+    const proceduralFallbacks = { ...layerMaps };
 
-    // Albedo height-blend only — no custom normalMap path (avoids perturbNormal2Arb breakage)
+    // Albedo height-blend of real textures + single grass normalMap (no multi-normal perturb)
     const mat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       roughness: 0.86,
       metalness: 0.04,
-      map: grassMap,
+      map: layerMaps.grass,
       normalMap: null,
+      normalScale: new THREE.Vector2(0.55, 0.55),
       envMap: envMap ?? undefined,
       envMapIntensity: envMap ? 0.55 : 0.28,
     });
 
     mat.onBeforeCompile = (shader) => {
-      shader.uniforms.uSand = { value: sandMap };
-      shader.uniforms.uRock = { value: rockMap };
+      shader.uniforms.uSand = { value: layerMaps.sand };
+      shader.uniforms.uRock = { value: layerMaps.rock };
+      shader.uniforms.uGravel = { value: layerMaps.gravel };
       shader.uniforms.uTile = { value: 0.085 };
 
       shader.vertexShader = shader.vertexShader
@@ -187,6 +237,7 @@ export class Terrain {
           #include <common>
           uniform sampler2D uSand;
           uniform sampler2D uRock;
+          uniform sampler2D uGravel;
           uniform float uTile;
           varying vec3 vTerrainWorld;
           varying float vTerrainH;
@@ -199,18 +250,27 @@ export class Terrain {
           vec4 grassSample = texture2D( map, tUV );
           vec4 sandSample = texture2D( uSand, tUV * 1.15 );
           vec4 rockSample = texture2D( uRock, tUV * 0.75 );
+          vec4 gravelSample = texture2D( uGravel, tUV * 1.4 );
 
           float sandW = 1.0 - smoothstep( 0.6, 3.2, vTerrainH );
           float rockW = smoothstep( 12.0, 20.0, vTerrainH );
           float slope = 1.0 - clamp( normalize( vNormal ).y, 0.0, 1.0 );
           rockW = clamp( rockW + slope * 0.55, 0.0, 1.0 );
-          float grassW = max( 1.0 - sandW - rockW * 0.85, 0.0 );
-          grassW *= ( 1.0 - rockW * 0.7 );
-          sandW *= ( 1.0 - rockW * 0.5 );
-          float sumW = grassW + sandW + rockW + 1e-4;
-          grassW /= sumW; sandW /= sumW; rockW /= sumW;
 
-          vec4 blendedMap = grassSample * grassW + sandSample * sandW + rockSample * rockW;
+          // Pad aprons (~4–5 and ~6–7): gravel weight for landing realism
+          float gravelLo = smoothstep( 3.4, 4.0, vTerrainH ) * ( 1.0 - smoothstep( 4.8, 5.6, vTerrainH ) );
+          float gravelHi = smoothstep( 5.8, 6.3, vTerrainH ) * ( 1.0 - smoothstep( 7.0, 7.8, vTerrainH ) );
+          float gravelW = max( gravelLo, gravelHi ) * 0.85;
+          gravelW *= ( 1.0 - rockW * 0.6 );
+
+          float grassW = max( 1.0 - sandW - rockW * 0.85 - gravelW, 0.0 );
+          grassW *= ( 1.0 - rockW * 0.7 );
+          sandW *= ( 1.0 - rockW * 0.5 ) * ( 1.0 - gravelW * 0.7 );
+          float sumW = grassW + sandW + rockW + gravelW + 1e-4;
+          grassW /= sumW; sandW /= sumW; rockW /= sumW; gravelW /= sumW;
+
+          vec4 blendedMap = grassSample * grassW + sandSample * sandW
+            + rockSample * rockW + gravelSample * gravelW;
           // Wet shoreline: subtle darker + cooler; roughness handled below
           float wet = 1.0 - smoothstep( 0.15, 1.8, vTerrainH );
           blendedMap.rgb = mix( blendedMap.rgb, blendedMap.rgb * vec3( 0.65, 0.72, 0.78 ), wet * 0.45 );
@@ -236,13 +296,71 @@ export class Terrain {
       mat.userData.shader = shader;
     };
 
-    // Bump key so broken cached programs from prior normal-blend shader are discarded
-    mat.customProgramCacheKey = () => 'heli-terrain-blend-v6-rebalance';
+    // Bump key so prior cached programs are discarded after PBR texture path
+    mat.customProgramCacheKey = () => 'heli-terrain-blend-v7-polyhaven';
 
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.receiveShadow = true;
     this.mesh.castShadow = false;
     this.mesh.renderOrder = 0;
+
+    this.ready = this.loadPbrTextures(mat, layerMaps, proceduralFallbacks);
+  }
+
+  private async loadPbrTextures(
+    mat: THREE.MeshStandardMaterial,
+    layerMaps: {
+      grass: THREE.Texture;
+      sand: THREE.Texture;
+      rock: THREE.Texture;
+      gravel: THREE.Texture;
+    },
+    procedural: {
+      grass: THREE.Texture;
+      sand: THREE.Texture;
+      rock: THREE.Texture;
+      gravel: THREE.Texture;
+    },
+  ): Promise<void> {
+    const base = `${import.meta.env.BASE_URL}textures/terrain/`;
+    const loader = new THREE.TextureLoader();
+
+    const [grassDiff, grassNor, sandDiff, rockDiff, gravelDiff] = await Promise.all([
+      loadTerrainTexture(loader, `${base}grass_diff.jpg`, true),
+      loadTerrainTexture(loader, `${base}grass_nor.jpg`, false),
+      loadTerrainTexture(loader, `${base}sand_diff.jpg`, true),
+      loadTerrainTexture(loader, `${base}rock_diff.jpg`, true),
+      loadTerrainTexture(loader, `${base}gravel_diff.jpg`, true),
+    ]);
+
+    // Update refs first so any recompile from needsUpdate sees real maps
+    layerMaps.grass = grassDiff ?? procedural.grass;
+    layerMaps.sand = sandDiff ?? procedural.sand;
+    layerMaps.rock = rockDiff ?? procedural.rock;
+    layerMaps.gravel = gravelDiff ?? procedural.gravel;
+
+    mat.map = layerMaps.grass;
+    if (grassNor) {
+      mat.normalMap = grassNor;
+      mat.normalScale.set(0.55, 0.55);
+    }
+
+    const shader = mat.userData.shader as
+      | { uniforms: Record<string, { value: unknown }> }
+      | undefined;
+    if (shader?.uniforms) {
+      if (shader.uniforms.uSand) shader.uniforms.uSand.value = layerMaps.sand;
+      if (shader.uniforms.uRock) shader.uniforms.uRock.value = layerMaps.rock;
+      if (shader.uniforms.uGravel) shader.uniforms.uGravel.value = layerMaps.gravel;
+    }
+
+    mat.needsUpdate = true;
+
+    // Dispose procedural placeholders only when replaced by real textures
+    if (grassDiff) procedural.grass.dispose();
+    if (sandDiff) procedural.sand.dispose();
+    if (rockDiff) procedural.rock.dispose();
+    if (gravelDiff) procedural.gravel.dispose();
   }
 
   setEnvMap(envMap: THREE.Texture | null) {
